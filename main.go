@@ -14,8 +14,8 @@ import (
 	"path"
 	"slices"
 	"sort"
-	"time"
 	"sync"
+	"time"
 )
 
 // variables and constants /////////////////////////
@@ -360,13 +360,13 @@ func upgrade() {
 		ProjectID string `json:"project_id"`
 		Files     []File `json:"files"`
 	}
-		// Unmarshal the JSON into a map of Root structs
+	// Unmarshal the JSON into a map of Root structs
 	var rootMap map[string]Root
 	var rootMap2 map[string]Root
 	json.Unmarshal([]byte(body), &rootMap)
 	json.Unmarshal([]byte(body2), &rootMap2)
 
-		// Extract URLs and filenames and store them in a list of maps
+	// Extract URLs and filenames and store them in a list of maps
 	var fileList []map[string]string
 	for _, root := range rootMap {
 		for _, file := range root.Files {
