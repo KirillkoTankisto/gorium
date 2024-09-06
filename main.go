@@ -46,7 +46,6 @@ const (
 // main function ///////////////////////////////////
 func main() {
 	// definition of command-line arguments
-	getVersion := flag.NewFlagSet("version", flag.ExitOnError)
 	getProject := flag.NewFlagSet("add", flag.ExitOnError)
 	createProfile := flag.NewFlagSet("profile", flag.ExitOnError)
 	// check if there's any arguments
@@ -57,13 +56,16 @@ func main() {
 	// read arguments
 	switch os.Args[1] {
 	case "version":
-		getVersion.Parse(os.Args[2:])
-
 		fmt.Println("Gorium", VERSION) // returns version
+		return
 	case "add": // adds mod to mods folder
 		getProject.Parse(os.Args[2:])
 
 		configPath, _ := getConfigPath()
+		if !dirExists(configPath) {
+			fmt.Println(Red, "No profile found, type gorium profile create", Reset)
+			return
+		}
 		configdata := readConfig(configPath)
 
 		gameversion := configdata.Gameversion
@@ -73,20 +75,32 @@ func main() {
 		modname := os.Args[2] // get mod's name
 
 		latestVersion := FetchLatestVersion(modname, gameversion, loader) // get latest version's url and filename
+		if latestVersion == nil {
+			return
+		}
 
 		downloadFile(latestVersion.Files[0].URL, modspath, latestVersion.Files[0].Filename, nil) // downloading file
+		return
+
 	case "profile": // mod's profile
 		createProfile.Parse(os.Args[2:])
+
 		switch os.Args[2] {
 		case "create": // create profile
 			createConfig() // creating profile
+		case "delete":
+			deleteConfig()
 		}
+		return
+
 	case "upgrade":
 		upgrade()
+		return
 	case "testing":
 		return
 	default:
 		fmt.Println("Unknown command") // error if command is incorrect
+		return
 	}
 }
 
@@ -151,6 +165,7 @@ func FetchLatestVersion(modname string, gameVersion string, loader string) *Vers
 		}
 	}
 	if len(filteredVersions) == 0 {
+		fmt.Println(Red, "No versions found", Reset)
 		return nil // No versions found
 	}
 	// Sort filtered versions by DatePublished in descending order
@@ -178,6 +193,7 @@ func downloadFile(url string, modspath string, filename string, wg *sync.WaitGro
 
 	file.Close()
 	response.Body.Close()
+	fmt.Println(Green, "Downloaded", filename, Reset)
 }
 
 func downloadFilesConcurrently(modspath string, files []map[string]string) {
@@ -192,11 +208,14 @@ func downloadFilesConcurrently(modspath string, files []map[string]string) {
 }
 
 func dirExists(path string) bool {
-	info, _ := os.Stat(path)
-	if os.IsNotExist(nil) {
+	_, err := os.Stat(path)
+	if err == nil {
+		return true
+	}
+	if os.IsNotExist(err) {
 		return false
 	}
-	return info.IsDir()
+	return false
 }
 
 func createConfig() {
@@ -256,6 +275,15 @@ func readConfig(path string) Config {
 	return config
 }
 
+func deleteConfig() {
+	configpath, _ := getConfigPath()
+	if !dirExists(configpath) {
+		fmt.Println(Red, "No profile found to delete", Reset)
+		return
+	}
+	os.Remove(configpath)
+}
+
 func getConfigPath() (string, string) {
 	home, _ := os.UserHomeDir()
 	return home + "\\.config\\gorium\\config.json", home + "\\.config\\gorium\\"
@@ -308,6 +336,10 @@ func hashFileSHA1(filePath string) string {
 
 func upgrade() {
 	configPath, _ := getConfigPath()
+	if !dirExists(configPath) {
+		fmt.Println(Red, "No profile found to upgrade", Reset)
+		return
+	}
 	configdata := readConfig(configPath)
 
 	modspath := configdata.Modsfolder
