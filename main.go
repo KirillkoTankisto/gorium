@@ -390,7 +390,6 @@ func upgrade() {
 
 	body, _ := io.ReadAll(resp.Body)
 	body2, _ := io.ReadAll(resp2.Body)
-	fmt.Println(body, body2)
 
 	type File struct {
 		URL      string `json:"url"`
