@@ -188,7 +188,7 @@ func downloadFile(url string, modspath string, filename string, wg *sync.WaitGro
 		os.Mkdir(modspath, 0755)
 	}
 
-	file, _ := os.Create(modspath + filename)
+	file, _ := os.Create(path.Join(modspath, filename))
 	io.Copy(file, response.Body)
 
 	file.Close()
@@ -374,14 +374,23 @@ func upgrade() {
 	r := bytes.NewReader(jsonData)
 	r2 := bytes.NewReader(jsonData)
 
-	resp, _ := http.Post(url, "aplication/json", r)    // making request
-	resp2, _ := http.Post(url2, "aplication/json", r2) // making request
+	req, _ := http.NewRequest("POST", url, r)
+	req.Header.Set("Content-Type", "application/json")  // Correct MIME type
+	req.Header.Set("User-Agent", FULL_VERSION)          // Set User-Agent
 
-	resp.Header.Set("User-Agent", FULL_VERSION)  // setting identifier for program
-	resp2.Header.Set("User-Agent", FULL_VERSION) // setting identifier for program
+	client := &http.Client{}
+	resp, _ := client.Do(req) // making request
+
+	// Repeat for the second request
+	req2, _ := http.NewRequest("POST", url2, r2)
+	req2.Header.Set("Content-Type", "application/json")  // Correct MIME type
+	req2.Header.Set("User-Agent", FULL_VERSION)          // Set User-Agent
+
+	resp2, _ := client.Do(req2)
 
 	body, _ := io.ReadAll(resp.Body)
 	body2, _ := io.ReadAll(resp2.Body)
+	fmt.Println(body, body2)
 
 	type File struct {
 		URL      string `json:"url"`
@@ -414,7 +423,7 @@ func upgrade() {
 		for _, root3 := range rootMap2 {
 			for _, file3 := range root3.Files {
 				if root2.ProjectID == root3.ProjectID {
-					os.Remove(modspath + file3.Filename)
+					os.Remove(path.Join(modspath, file3.Filename))
 				}
 			}
 		}
