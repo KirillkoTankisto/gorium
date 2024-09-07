@@ -221,7 +221,7 @@ func dirExists(path string) bool {
 func createConfig() {
 	folder, mineversion, loader := getConfigDataToWrite()
 	config := Config{
-		Modsfolder:  folder + "\\",
+		Modsfolder:  path.Join(folder, ""),
 		Gameversion: mineversion,
 		Loader:      loader,
 	}
@@ -286,7 +286,7 @@ func deleteConfig() {
 
 func getConfigPath() (string, string) {
 	home, _ := os.UserHomeDir()
-	return home + "\\.config\\gorium\\config.json", home + "\\.config\\gorium\\"
+	return path.Join(home, ".config", "gorium", "config.json"), path.Join(home, ".config", "gorium")
 }
 
 func getSHA1HashesFromDirectory(dir string) []string {
