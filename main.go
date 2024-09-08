@@ -16,6 +16,8 @@ import (
 	"sort"
 	"sync"
 	"time"
+
+	"github.com/schollz/progressbar/v3"
 )
 
 // variables and constants /////////////////////////
@@ -189,11 +191,11 @@ func downloadFile(url string, modspath string, filename string, wg *sync.WaitGro
 	}
 
 	file, _ := os.Create(path.Join(modspath, filename))
-	io.Copy(file, response.Body)
+	bar := progressbar.DefaultBytes(response.ContentLength, "Downloading "+Cyan+filename+Reset)
+	io.Copy(io.MultiWriter(file, bar), response.Body)
 
 	file.Close()
 	response.Body.Close()
-	fmt.Println(Green, "Downloaded", filename, Reset)
 }
 
 func downloadFilesConcurrently(modspath string, files []map[string]string) {
@@ -348,6 +350,10 @@ func upgrade() {
 
 	hashes := getSHA1HashesFromDirectory(modspath)
 
+	if len(hashes) == 0 {
+		return
+	}
+
 	type HashesToSend struct {
 		Hashes       []string `json:"hashes"`
 		Algorithm    string   `json:"algorithm"`
@@ -375,16 +381,16 @@ func upgrade() {
 	r2 := bytes.NewReader(jsonData)
 
 	req, _ := http.NewRequest("POST", url, r)
-	req.Header.Set("Content-Type", "application/json")  // Correct MIME type
-	req.Header.Set("User-Agent", FULL_VERSION)          // Set User-Agent
+	req.Header.Set("Content-Type", "application/json") // Correct MIME type
+	req.Header.Set("User-Agent", FULL_VERSION)         // Set User-Agent
 
 	client := &http.Client{}
 	resp, _ := client.Do(req) // making request
 
 	// Repeat for the second request
 	req2, _ := http.NewRequest("POST", url2, r2)
-	req2.Header.Set("Content-Type", "application/json")  // Correct MIME type
-	req2.Header.Set("User-Agent", FULL_VERSION)          // Set User-Agent
+	req2.Header.Set("Content-Type", "application/json") // Correct MIME type
+	req2.Header.Set("User-Agent", FULL_VERSION)         // Set User-Agent
 
 	resp2, _ := client.Do(req2)
 
@@ -429,4 +435,5 @@ func upgrade() {
 	}
 
 	downloadFilesConcurrently(modspath, fileList)
+	fmt.Println(Green, "Upgrade completed succesfully", Reset)
 }
