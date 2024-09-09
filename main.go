@@ -16,6 +16,7 @@ import (
 	"sort"
 	"sync"
 	"time"
+	"strings"
 
 	"github.com/schollz/progressbar/v3"
 )
@@ -198,15 +199,15 @@ func downloadFile(url string, modspath string, filename string, wg *sync.WaitGro
 	response.Body.Close()
 }
 
-func downloadFilesConcurrently(modspath string, files []map[string]string) {
+func downloadFilesConcurrently(modspath string, urls []map[string]string) {
 	var wg sync.WaitGroup
+	wg.Add(len(urls))
 
-	for _, file := range files {
-		wg.Add(1)
-		go downloadFile(file["url"], modspath, file["filename"], &wg)
+	for _, urlMap := range urls {
+		go downloadFile(urlMap["url"], modspath, urlMap["filename"], &wg)
 	}
 
-	wg.Wait() // Wait for all downloads to finish
+	wg.Wait()
 }
 
 func dirExists(path string) bool {
@@ -420,7 +421,9 @@ func upgrade() {
 				"url":      file.URL,
 				"filename": file.Filename,
 			}
-			fileList = append(fileList, fileInfo)
+			if !strings.Contains(fileInfo["filename"], "sources") {
+				fileList = append(fileList, fileInfo)
+			}
 		}
 	}
 
