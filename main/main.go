@@ -14,9 +14,11 @@ import (
 	"path"
 	"slices"
 	"sort"
+	"strings"
 	"sync"
 	"time"
-	"strings"
+
+	"gorium/cli"
 
 	"github.com/schollz/progressbar/v3"
 )
@@ -29,9 +31,15 @@ var backwardFabric, backwardForge = false, false
 var loaderSlice = []string{"quilt", "fabric", "neoforge", "forge"}
 
 type Config struct {
+	Active      string `json:"active"`
+	Name        string `json:"name"`
 	Modsfolder  string `json:"modsfolder"`
 	Gameversion string `json:"gameversion"`
 	Loader      string `json:"loader"`
+}
+
+type MultiConfig struct {
+	Profiles []Config
 }
 
 // console colors ///////////////////////////////////
@@ -48,6 +56,23 @@ const (
 
 // main function ///////////////////////////////////
 func main() {
+
+	configpath, configfolder := getConfigPath()
+
+	if !dirExists(configpath) {
+		datatowrite := MultiConfig{
+			Profiles: []Config{},
+		}
+
+		jsonData, _ := json.MarshalIndent(datatowrite, "", "  ")
+
+		if !dirExists(configfolder) {
+			os.MkdirAll(configfolder, 0755)
+		}
+
+		os.WriteFile(configpath, jsonData, 0644)
+	}
+
 	// definition of command-line arguments
 	getProject := flag.NewFlagSet("add", flag.ExitOnError)
 	createProfile := flag.NewFlagSet("profile", flag.ExitOnError)
@@ -93,6 +118,8 @@ func main() {
 			createConfig() // creating profile
 		case "delete":
 			deleteConfig()
+		case "switch":
+			switchprofile()
 		}
 		return
 
@@ -100,6 +127,7 @@ func main() {
 		upgrade()
 		return
 	case "testing":
+
 		return
 	default:
 		fmt.Println("Unknown command") // error if command is incorrect
@@ -222,30 +250,33 @@ func dirExists(path string) bool {
 }
 
 func createConfig() {
-	folder, mineversion, loader := getConfigDataToWrite()
-	config := Config{
+	folder, mineversion, loader, name := getConfigDataToWrite()
+
+	newConfig := Config{
 		Modsfolder:  path.Join(folder, ""),
 		Gameversion: mineversion,
 		Loader:      loader,
+		Name:        name,
+		Active:      "*",
 	}
-	jsonData, _ := json.MarshalIndent(config, "", "  ")
 
-	configpath, configfolderpath := getConfigPath()
+	configpath, _ := getConfigPath()
 
-	direxists := dirExists(configfolderpath)
+	oldconf := readFullConfig(configpath)
 
-	if !direxists {
-		os.MkdirAll(configfolderpath, 0755)
-	}
+	oldconf.Profiles = append(oldconf.Profiles, newConfig)
+
+	jsonData, _ := json.MarshalIndent(oldconf, "", "  ")
 
 	os.WriteFile(configpath, jsonData, 0644)
 }
 
-func getConfigDataToWrite() (string, string, string) {
+func getConfigDataToWrite() (string, string, string, string) {
 	var folder string
 	var mineversion string
 	var loader string
-	for i := 0; i < 3; {
+	var name string
+	for i := 0; i < 4; {
 		switch i {
 		case 0:
 			fmt.Print("Enter mods folder path: ")
@@ -260,21 +291,42 @@ func getConfigDataToWrite() (string, string, string) {
 				i = 2
 			}
 		case 2:
-			fmt.Print("Enter loader name (quilt, fabric, neoforge, forge)\n")
-			_, _ = fmt.Scanln(&loader)
-			if slices.Contains(loaderSlice, loader) {
-				i = 3
+			menu := cli.NewMenu("Choose loader")
+			menu.AddItem("Quilt", "quilt")
+			menu.AddItem("Fabric", "fabric")
+			menu.AddItem("Forge", "forge")
+			menu.AddItem("Neoforge", "neoforge")
+			loader = menu.Display()
+			i = 3
+		case 3:
+			fmt.Print("How does this profile should be called?\n")
+			_, _ = fmt.Scanln(&name)
+			if name != "" {
+				i = 4
 			}
 		}
 	}
-	return folder, mineversion, loader
+	return folder, mineversion, loader, name
 }
 
 func readConfig(path string) Config {
 	configFile, _ := os.ReadFile(path)
 
-	var config Config
-	_ = json.Unmarshal(configFile, &config)
+	var config MultiConfig
+	json.Unmarshal(configFile, &config)
+	for _, rootconfig := range config.Profiles {
+		if rootconfig.Active == "*" {
+			return rootconfig
+		}
+	}
+	return Config{}
+}
+
+func readFullConfig(path string) MultiConfig {
+	configFile, _ := os.ReadFile(path)
+
+	var config MultiConfig
+	json.Unmarshal(configFile, &config)
 	return config
 }
 
@@ -439,4 +491,26 @@ func upgrade() {
 
 	downloadFilesConcurrently(modspath, fileList)
 	fmt.Println(Green, "Upgrade completed succesfully", Reset)
+}
+
+func switchprofile() {
+	configPath, _ := getConfigPath()
+	roots := readFullConfig(configPath)
+	switchmenu := cli.NewMenu("Choose profile")
+	for _, profile := range roots.Profiles {
+		switchmenu.AddItem(profile.Name+" "+profile.Loader+" "+profile.Gameversion, profile.Name)
+	}
+	choosenprofile := switchmenu.Display()
+	for i := range roots.Profiles {
+		if roots.Profiles[i].Active == "*" {
+			roots.Profiles[i].Active = ""
+		}
+		if roots.Profiles[i].Name == choosenprofile {
+			roots.Profiles[i].Active = "*"
+		}
+	}
+
+	jsonData, _ := json.MarshalIndent(roots, "", "  ")
+
+	os.WriteFile(configPath, jsonData, 0644)
 }
