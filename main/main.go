@@ -91,7 +91,7 @@ func main() {
 
 		configPath, _ := getConfigPath()
 		if !dirExists(configPath) {
-			fmt.Println(Red, "No profile found, type gorium profile create", Reset)
+			fmt.Println(Red + "No profile found, type gorium profile create" + Reset)
 			return
 		}
 		configdata := readConfig(configPath)
@@ -120,6 +120,9 @@ func main() {
 			deleteConfig()
 		case "switch":
 			switchprofile()
+		case "list":
+			listprofiles()
+			return
 		}
 		return
 
@@ -196,7 +199,7 @@ func FetchLatestVersion(modname string, gameVersion string, loader string) *Vers
 		}
 	}
 	if len(filteredVersions) == 0 {
-		fmt.Println(Red, "No versions found", Reset)
+		fmt.Println(Red + "No versions found" + Reset)
 		return nil // No versions found
 	}
 	// Sort filtered versions by DatePublished in descending order
@@ -333,7 +336,7 @@ func readFullConfig(path string) MultiConfig {
 func deleteConfig() {
 	configpath, _ := getConfigPath()
 	if !dirExists(configpath) {
-		fmt.Println(Red, "No profile found to delete", Reset)
+		fmt.Println(Red + "No profile found to delete" + Reset)
 		return
 	}
 	os.Remove(configpath)
@@ -392,7 +395,7 @@ func hashFileSHA1(filePath string) string {
 func upgrade() {
 	configPath, _ := getConfigPath()
 	if !dirExists(configPath) {
-		fmt.Println(Red, "No profile found to upgrade", Reset)
+		fmt.Println(Red + "No profile found to upgrade" + Reset)
 		return
 	}
 	configdata := readConfig(configPath)
@@ -490,7 +493,7 @@ func upgrade() {
 	}
 
 	downloadFilesConcurrently(modspath, fileList)
-	fmt.Println(Green, "Upgrade completed succesfully", Reset)
+	fmt.Println(Green + "Upgrade completed succesfully" + Reset)
 }
 
 func switchprofile() {
@@ -513,4 +516,17 @@ func switchprofile() {
 	jsonData, _ := json.MarshalIndent(roots, "", "  ")
 
 	os.WriteFile(configPath, jsonData, 0644)
+}
+
+func listprofiles() {
+	configPath, _ := getConfigPath()
+	roots := readFullConfig(configPath)
+	for _, root := range roots.Profiles {
+		if root.Active == "*" {
+			fmt.Println(root.Active, Cyan+root.Name+Reset)
+		} else {
+			fmt.Println(root.Name)
+		}
+
+	}
 }
