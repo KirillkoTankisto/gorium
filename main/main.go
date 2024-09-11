@@ -78,7 +78,7 @@ func main() {
 	createProfile := flag.NewFlagSet("profile", flag.ExitOnError)
 	// check if there's any arguments
 	if len(os.Args) < 2 {
-		fmt.Println("No arguments")
+		fmt.Println("Gorium Copyright (C) 2024 KirillkoTankisto.\nFast Minecraft CLI mod manager written in Go.\nThis program comes with ABSOLUTELY NO WARRANTY.\nThis is free software, and you are welcome to redistribute it under certain conditions.")
 		return
 	}
 	// read arguments
