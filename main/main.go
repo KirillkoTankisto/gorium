@@ -129,6 +129,9 @@ func main() {
 	case "upgrade":
 		upgrade()
 		return
+	case "list":
+		listmods()
+		return
 	case "testing":
 
 		return
@@ -528,5 +531,23 @@ func listprofiles() {
 			fmt.Println(root.Name)
 		}
 
+	}
+}
+
+func listmods() {
+	configPath, _ := getConfigPath()
+	if !dirExists(configPath) {
+		fmt.Println(Red + "No profile found, type gorium profile create" + Reset)
+		return
+	}
+	configdata := readConfig(configPath)
+	modsfolder := configdata.Modsfolder
+	mods, _ := os.ReadDir(modsfolder)
+	if len(mods) == 0 {
+		fmt.Println("No mods, type gorium add")
+		return
+	}
+	for _, mod := range mods {
+		fmt.Println(Cyan + mod.Name() + Reset)
 	}
 }
