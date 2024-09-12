@@ -13,8 +13,8 @@ var down byte = 66
 var escape byte = 27
 var enter byte = 13
 var keys = map[byte]bool{
-	up:    true,
-	down:  true,
+	up:   true,
+	down: true,
 }
 
 type Menu struct {
@@ -60,7 +60,7 @@ func (m *Menu) renderMenuItems(redraw bool) {
 		menuItemText := menuItem.Text
 		cursor := "  "
 		if index == m.CursorPos {
-			cursor = "\033[33m> \033[0m" // Yellow cursor
+			cursor = "\033[33m> \033[0m"                         // Yellow cursor
 			menuItemText = "\033[33m" + menuItemText + "\033[0m" // Yellow text
 		}
 
