@@ -526,7 +526,7 @@ func listprofiles() {
 	roots := readFullConfig(configPath)
 	for _, root := range roots.Profiles {
 		if root.Active == "*" {
-			fmt.Println(root.Active, Cyan+root.Name+Reset)
+			fmt.Println("["+root.Active+"]", Cyan+root.Name+Reset)
 		} else {
 			fmt.Println(root.Name)
 		}
