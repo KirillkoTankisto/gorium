@@ -12,17 +12,16 @@ import (
 	"net/http"
 	"os"
 	"path"
+	"runtime"
 	"slices"
 	"sort"
 	"strings"
 	"sync"
 	"time"
-	"runtime"
+
 	"golang.org/x/sys/windows"
 
 	"gorium/cli"
-
-	"github.com/schollz/progressbar/v3"
 )
 
 // variables and constants /////////////////////////
@@ -45,15 +44,14 @@ type MultiConfig struct {
 }
 
 func enableVirtualTerminalProcessing() {
-    if runtime.GOOS == "windows" {
-        hOut := windows.Handle(os.Stdout.Fd())
-        var mode uint32
-        windows.GetConsoleMode(hOut, &mode)
-        mode |= windows.ENABLE_VIRTUAL_TERMINAL_PROCESSING
-        windows.SetConsoleMode(hOut, mode)
-    }
+	if runtime.GOOS == "windows" {
+		hOut := windows.Handle(os.Stdout.Fd())
+		var mode uint32
+		windows.GetConsoleMode(hOut, &mode)
+		mode |= windows.ENABLE_VIRTUAL_TERMINAL_PROCESSING
+		windows.SetConsoleMode(hOut, mode)
+	}
 }
-
 
 // console colors ///////////////////////////////////
 const (
@@ -241,8 +239,8 @@ func downloadFile(url string, modspath string, filename string, wg *sync.WaitGro
 	}
 
 	file, _ := os.Create(path.Join(modspath, filename))
-	bar := progressbar.DefaultBytes(response.ContentLength, "Downloading "+Cyan+filename+Reset)
-	io.Copy(io.MultiWriter(file, bar), response.Body)
+	fmt.Println("[Downloading] [" + Cyan + filename + Reset + "]")
+	io.Copy(file, response.Body)
 
 	file.Close()
 	response.Body.Close()
@@ -424,7 +422,8 @@ func upgrade() {
 
 	hashes := getSHA1HashesFromDirectory(modspath)
 
-	if len(hashes) == 0 {
+	if len(hashes) < 1 {
+		fmt.Println("There's no mods, type gorium add")
 		return
 	}
 
@@ -519,7 +518,11 @@ func switchprofile() {
 	roots := readFullConfig(configPath)
 	switchmenu := cli.NewMenu("Choose profile")
 	for _, profile := range roots.Profiles {
-		switchmenu.AddItem(profile.Name+" "+profile.Loader+" "+profile.Gameversion, profile.Name)
+		if profile.Active == "*" {
+			switchmenu.AddItem(profile.Name+Reset+" ["+Green+"Active"+Reset+"] ["+Cyan+profile.Loader+Reset+", "+Yellow+profile.Gameversion+Reset+"] ["+White+profile.Modsfolder+Reset+"]", profile.Name)
+		} else {
+			switchmenu.AddItem(profile.Name+Reset+" ["+Cyan+profile.Loader+Reset+", "+Yellow+profile.Gameversion+Reset+"] ["+White+profile.Modsfolder+Reset+"]", profile.Name)
+		}
 	}
 	choosenprofile := switchmenu.Display()
 	for i := range roots.Profiles {
@@ -539,11 +542,11 @@ func switchprofile() {
 func listprofiles() {
 	configPath, _ := getConfigPath()
 	roots := readFullConfig(configPath)
-	for _, root := range roots.Profiles {
-		if root.Active == "*" {
-			fmt.Println("["+root.Active+"]", Cyan+root.Name+Reset, root.Gameversion, root.Loader)
+	for _, profile := range roots.Profiles {
+		if profile.Active == "*" {
+			fmt.Println(profile.Name + Reset + " [" + Green + "Active" + Reset + "] [" + Cyan + profile.Loader + Reset + ", " + Yellow + profile.Gameversion + Reset + "] [" + White + profile.Modsfolder + Reset + "]")
 		} else {
-			fmt.Println(root.Name, root.Gameversion, root.Loader)
+			fmt.Println(profile.Name + Reset + " [" + Cyan + profile.Loader + Reset + ", " + Yellow + profile.Gameversion + Reset + "] [" + White + profile.Modsfolder + Reset + "]")
 		}
 
 	}
