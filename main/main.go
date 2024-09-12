@@ -17,6 +17,8 @@ import (
 	"strings"
 	"sync"
 	"time"
+	"runtime"
+	"golang.org/x/sys/windows"
 
 	"gorium/cli"
 
@@ -42,6 +44,17 @@ type MultiConfig struct {
 	Profiles []Config
 }
 
+func enableVirtualTerminalProcessing() {
+    if runtime.GOOS == "windows" {
+        hOut := windows.Handle(os.Stdout.Fd())
+        var mode uint32
+        windows.GetConsoleMode(hOut, &mode)
+        mode |= windows.ENABLE_VIRTUAL_TERMINAL_PROCESSING
+        windows.SetConsoleMode(hOut, mode)
+    }
+}
+
+
 // console colors ///////////////////////////////////
 const (
 	Reset  = "\033[0m"
@@ -56,6 +69,8 @@ const (
 
 // main function ///////////////////////////////////
 func main() {
+
+	enableVirtualTerminalProcessing()
 
 	configpath, configfolder := getConfigPath()
 
@@ -526,9 +541,9 @@ func listprofiles() {
 	roots := readFullConfig(configPath)
 	for _, root := range roots.Profiles {
 		if root.Active == "*" {
-			fmt.Println("["+root.Active+"]", Cyan+root.Name+Reset)
+			fmt.Println("["+root.Active+"]", Cyan+root.Name+Reset, root.Gameversion, root.Loader)
 		} else {
-			fmt.Println(root.Name)
+			fmt.Println(root.Name, root.Gameversion, root.Loader)
 		}
 
 	}
