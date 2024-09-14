@@ -12,14 +12,11 @@ import (
 	"net/http"
 	"os"
 	"path"
-	"runtime"
 	"slices"
 	"sort"
 	"strings"
 	"sync"
 	"time"
-
-	"golang.org/x/sys/windows"
 
 	"gorium/cli"
 )
@@ -41,16 +38,6 @@ type Config struct {
 
 type MultiConfig struct {
 	Profiles []Config
-}
-
-func enableVirtualTerminalProcessing() {
-	if runtime.GOOS == "windows" {
-		hOut := windows.Handle(os.Stdout.Fd())
-		var mode uint32
-		windows.GetConsoleMode(hOut, &mode)
-		mode |= windows.ENABLE_VIRTUAL_TERMINAL_PROCESSING
-		windows.SetConsoleMode(hOut, mode)
-	}
 }
 
 // console colors ///////////////////////////////////
@@ -283,6 +270,10 @@ func createConfig() {
 
 	oldconf := readFullConfig(configpath)
 
+	for i := range oldconf.Profiles {
+		oldconf.Profiles[i].Active = ""
+	}
+
 	oldconf.Profiles = append(oldconf.Profiles, newConfig)
 
 	jsonData, _ := json.MarshalIndent(oldconf, "", "  ")
@@ -454,16 +445,15 @@ func upgrade() {
 	r2 := bytes.NewReader(jsonData)
 
 	req, _ := http.NewRequest("POST", url, r)
-	req.Header.Set("Content-Type", "application/json") // Correct MIME type
-	req.Header.Set("User-Agent", FULL_VERSION)         // Set User-Agent
+	req.Header.Set("Content-Type", "application/json")
+	req.Header.Set("User-Agent", FULL_VERSION)
 
 	client := &http.Client{}
-	resp, _ := client.Do(req) // making request
+	resp, _ := client.Do(req)
 
-	// Repeat for the second request
 	req2, _ := http.NewRequest("POST", url2, r2)
-	req2.Header.Set("Content-Type", "application/json") // Correct MIME type
-	req2.Header.Set("User-Agent", FULL_VERSION)         // Set User-Agent
+	req2.Header.Set("Content-Type", "application/json")
+	req2.Header.Set("User-Agent", FULL_VERSION)
 
 	resp2, _ := client.Do(req2)
 
@@ -476,18 +466,32 @@ func upgrade() {
 	}
 
 	type Root struct {
-		ProjectID string `json:"project_id"`
-		Files     []File `json:"files"`
+		ProjectID     string `json:"project_id"`
+		Files         []File `json:"files"`
+		DatePublished string `json:"date_published"`
 	}
-	// Unmarshal the JSON into a map of Root structs
+
 	var rootMap map[string]Root
 	var rootMap2 map[string]Root
 	json.Unmarshal([]byte(body), &rootMap)
 	json.Unmarshal([]byte(body2), &rootMap2)
 
-	// Extract URLs and filenames and store them in a list of maps
 	var fileList []map[string]string
+	var filteredRootMap []Root
 	for _, root := range rootMap {
+		isDuplicate := false
+		for _, root2 := range rootMap2 {
+			if root.DatePublished == root2.DatePublished && root.ProjectID == root2.ProjectID {
+				isDuplicate = true
+				break
+			}
+		}
+		if !isDuplicate {
+			filteredRootMap = append(filteredRootMap, root)
+		}
+	}
+
+	for _, root := range filteredRootMap {
 		for _, file := range root.Files {
 			fileInfo := map[string]string{
 				"url":      file.URL,
@@ -502,11 +506,16 @@ func upgrade() {
 	for _, root2 := range rootMap {
 		for _, root3 := range rootMap2 {
 			for _, file3 := range root3.Files {
-				if root2.ProjectID == root3.ProjectID {
+				if root2.ProjectID == root3.ProjectID && root2.DatePublished != root3.DatePublished {
 					os.Remove(path.Join(modspath, file3.Filename))
 				}
 			}
 		}
+	}
+
+	if len(fileList) == 0 {
+		fmt.Println("No updates found")
+		return
 	}
 
 	downloadFilesConcurrently(modspath, fileList)
@@ -523,6 +532,10 @@ func switchprofile() {
 		} else {
 			switchmenu.AddItem(profile.Name+Reset+" ["+Cyan+profile.Loader+Reset+", "+Yellow+profile.Gameversion+Reset+"] ["+White+profile.Modsfolder+Reset+"]", profile.Name)
 		}
+	}
+	if len(switchmenu.MenuItems) < 2 {
+		fmt.Println("No profiles to switch")
+		return
 	}
 	choosenprofile := switchmenu.Display()
 	for i := range roots.Profiles {
@@ -548,7 +561,6 @@ func listprofiles() {
 		} else {
 			fmt.Println(profile.Name + Reset + " [" + Cyan + profile.Loader + Reset + ", " + Yellow + profile.Gameversion + Reset + "] [" + White + profile.Modsfolder + Reset + "]")
 		}
-
 	}
 }
 
