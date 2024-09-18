@@ -1,7 +1,8 @@
 package main
 
-// importing libraries /////////////////////////////
+//	importing libraries
 import (
+	"bufio"
 	"bytes"
 	"crypto/sha1"
 	"encoding/hex"
@@ -14,6 +15,7 @@ import (
 	"path"
 	"slices"
 	"sort"
+	"strconv"
 	"strings"
 	"sync"
 	"time"
@@ -21,7 +23,7 @@ import (
 	"gorium/cli"
 )
 
-// variables and constants /////////////////////////
+//	variables and constants
 const VERSION = "0.1"
 const FULL_VERSION = "Gorium " + VERSION
 
@@ -40,7 +42,25 @@ type MultiConfig struct {
 	Profiles []Config
 }
 
-// console colors ///////////////////////////////////
+type File struct {
+	URL      string `json:"url"`
+	Filename string `json:"filename"`
+}
+
+type Root struct {
+	ProjectID     string   `json:"project_id"`
+	Files         []File   `json:"files"`
+	DatePublished string   `json:"date_published"`
+	Title         string   `json:"title"`
+	Categories    []string `json:"categories"`
+	ProjectType   string   `json:"project_type"`
+	Versions      []string `json:"versions"`
+}
+type Searchroot struct {
+	Hits []Root `json:"hits"`
+}
+
+//	console colors
 const (
 	Reset  = "\033[0m"
 	Red    = "\033[31m"
@@ -52,7 +72,7 @@ const (
 	White  = "\033[37m"
 )
 
-// main function ///////////////////////////////////
+//	main function
 func main() {
 
 	enableVirtualTerminalProcessing()
@@ -73,20 +93,20 @@ func main() {
 		os.WriteFile(configpath, jsonData, 0644)
 	}
 
-	// definition of command-line arguments
 	getProject := flag.NewFlagSet("add", flag.ExitOnError)
 	createProfile := flag.NewFlagSet("profile", flag.ExitOnError)
-	// check if there's any arguments
+	searchMod := flag.NewFlagSet("search", flag.ExitOnError)
+
 	if len(os.Args) < 2 {
 		fmt.Println("Gorium Copyright © 2024 KirillkoTankisto (https://github.com/KirillkoTankisto).\nFast Minecraft CLI mod manager written in Go.\nThis program comes with ABSOLUTELY NO WARRANTY.\nThis is free software, and you are welcome to redistribute it under certain conditions.\nFor details, see here: https://www.gnu.org/licenses/gpl-3.0.txt\nContacts: kirsergeev@icloud.com, kirillkotankisto@gmail.com")
 		return
 	}
-	// read arguments
+
 	switch os.Args[1] {
 	case "version":
-		fmt.Println("Gorium", VERSION) // returns version
+		fmt.Println("Gorium", VERSION)
 		return
-	case "add": // adds mod to mods folder
+	case "add":
 		getProject.Parse(os.Args[2:])
 
 		configPath, _ := getConfigPath()
@@ -100,22 +120,22 @@ func main() {
 		loader := configdata.Loader
 		modspath := configdata.Modsfolder
 
-		modname := os.Args[2] // get mod's name
+		modname := os.Args[2]
 
-		latestVersion := FetchLatestVersion(modname, gameversion, loader) // get latest version's url and filename
+		latestVersion := FetchLatestVersion(modname, gameversion, loader)
 		if latestVersion == nil {
 			return
 		}
 
-		downloadFile(latestVersion.Files[0].URL, modspath, latestVersion.Files[0].Filename, nil) // downloading file
+		downloadFile(latestVersion.Files[0].URL, modspath, latestVersion.Files[0].Filename, nil)
 		return
 
-	case "profile": // mod's profile
+	case "profile":
 		createProfile.Parse(os.Args[2:])
 
 		switch os.Args[2] {
-		case "create": // create profile
-			createConfig() // creating profile
+		case "create":
+			createConfig()
 		case "delete":
 			deleteConfig()
 		case "switch":
@@ -132,8 +152,11 @@ func main() {
 	case "list":
 		listmods()
 		return
+	case "search":
+		searchMod.Parse(os.Args[2:])
+		modname := os.Args[2]
+		Search(modname)
 	case "testing":
-
 		return
 	default:
 		fmt.Println("Unknown command") // error if command is incorrect
@@ -142,12 +165,8 @@ func main() {
 }
 
 // Function for fetching latest version //////////////////////////////////////////////////////////
-type File struct { // what we want to get from API
-	URL      string `json:"url"`
-	Filename string `json:"filename"`
-}
 
-type Version struct { // what we check
+type Version struct {
 	GameVersions  []string  `json:"game_versions"`
 	VersionNumber string    `json:"version_number"`
 	Loaders       []string  `json:"loaders"`
@@ -155,28 +174,27 @@ type Version struct { // what we check
 	DatePublished time.Time `json:"date_published"`
 }
 
-func FetchLatestVersion(modname string, gameVersion string, loader string) *Version { // start of function
+func FetchLatestVersion(modname string, gameVersion string, loader string) *Version {
 
-	url_project := "https://api.modrinth.com/v2/project/" + modname + "/version?game_versions=" + gameVersion // making url for GET request)
+	url_project := "https://api.modrinth.com/v2/project/" + modname + "/version?game_versions=" + gameVersion
 
-	client := http.Client{ // setting client settings for request
+	client := http.Client{
 		Timeout: time.Second * 5,
 	}
 
-	req, _ := http.NewRequest("GET", url_project, nil) // making request
+	req, _ := http.NewRequest("GET", url_project, nil)
 
-	req.Header.Set("User-Agent", FULL_VERSION) // setting identifier for program
+	req.Header.Set("User-Agent", FULL_VERSION)
 
-	resp, _ := client.Do(req) // sending request
+	resp, _ := client.Do(req)
 
-	body, _ := io.ReadAll(resp.Body) // read response
+	body, _ := io.ReadAll(resp.Body)
 
-	resp.Body.Close() // closing respone
+	resp.Body.Close()
 
 	var versions []Version
-	_ = json.Unmarshal(body, &versions) // unmarshal json response
+	_ = json.Unmarshal(body, &versions)
 
-	// Enable backward compatibility
 	switch loader {
 	case "quilt":
 		backwardFabric = true
@@ -184,7 +202,6 @@ func FetchLatestVersion(modname string, gameVersion string, loader string) *Vers
 		backwardForge = true
 	}
 
-	// Filter and sort versions by the specified game version and loader
 	var filteredVersions []Version
 
 	for _, version := range versions {
@@ -203,20 +220,18 @@ func FetchLatestVersion(modname string, gameVersion string, loader string) *Vers
 	}
 	if len(filteredVersions) == 0 {
 		fmt.Println(Red + "No versions found" + Reset)
-		return nil // No versions found
+		return nil
 	}
-	// Sort filtered versions by DatePublished in descending order
 	sort.Slice(filteredVersions, func(i, j int) bool {
 		return filteredVersions[i].DatePublished.After(filteredVersions[j].DatePublished)
 	})
-	// Return the latest version
 	return &filteredVersions[0]
 }
 
 // function to download file from url ///////////////////////////////////////////////////////////////////////////////////////////
 func downloadFile(url string, modspath string, filename string, wg *sync.WaitGroup) {
 	if wg != nil {
-		defer wg.Done() // Only call wg.Done() if wg is not nil
+		defer wg.Done()
 	}
 
 	response, _ := http.Get(url)
@@ -290,13 +305,13 @@ func getConfigDataToWrite() (string, string, string, string) {
 		switch i {
 		case 0:
 			fmt.Print("Enter mods folder path: ")
-			_, _ = fmt.Scanln(&folder)
+			fmt.Scanln(&folder)
 			if dirExists(folder) {
 				i = 1
 			}
 		case 1:
 			fmt.Print("Enter Minecraft version: ")
-			_, _ = fmt.Scanln(&mineversion)
+			fmt.Scanln(&mineversion)
 			if mineversion != "" {
 				i = 2
 			}
@@ -310,7 +325,7 @@ func getConfigDataToWrite() (string, string, string, string) {
 			i = 3
 		case 3:
 			fmt.Print("How does this profile should be called?\n")
-			_, _ = fmt.Scanln(&name)
+			fmt.Scanln(&name)
 			if name != "" {
 				i = 4
 			}
@@ -357,7 +372,6 @@ func getConfigPath() (string, string) {
 func getSHA1HashesFromDirectory(dir string) []string {
 	var hashes []string
 
-	// Reading directory contents
 	files, err := os.ReadDir(dir)
 	if err != nil {
 		return nil
@@ -377,22 +391,18 @@ func getSHA1HashesFromDirectory(dir string) []string {
 }
 
 func hashFileSHA1(filePath string) string {
-	// Opening file
 	file, err := os.Open(filePath)
 	if err != nil {
 		return ""
 	}
 	defer file.Close()
 
-	// Creating a new SHA1 hash
 	hash := sha1.New()
 
-	// Copying the file content to the hash
 	if _, err := io.Copy(hash, file); err != nil {
 		return ""
 	}
 
-	// Calculating the SHA1 checksum
 	hashInBytes := hash.Sum(nil)[:20]
 	hashString := hex.EncodeToString(hashInBytes)
 
@@ -459,17 +469,6 @@ func upgrade() {
 
 	body, _ := io.ReadAll(resp.Body)
 	body2, _ := io.ReadAll(resp2.Body)
-
-	type File struct {
-		URL      string `json:"url"`
-		Filename string `json:"filename"`
-	}
-
-	type Root struct {
-		ProjectID     string `json:"project_id"`
-		Files         []File `json:"files"`
-		DatePublished string `json:"date_published"`
-	}
 
 	var rootMap map[string]Root
 	var rootMap2 map[string]Root
@@ -580,4 +579,120 @@ func listmods() {
 	for _, mod := range mods {
 		fmt.Println(Cyan + mod.Name() + Reset)
 	}
+}
+
+func contains(slice []string, str string) bool {
+	for _, v := range slice {
+		if v == str {
+			return true
+		}
+	}
+	return false
+}
+
+func Search(modname string) {
+	configPath, _ := getConfigPath()
+	if !dirExists(configPath) {
+		fmt.Println(Red + "No profile found, type gorium profile create" + Reset)
+		return
+	}
+	configdata := readConfig(configPath)
+
+	loader := configdata.Loader
+	version := configdata.Gameversion
+	modspath := configdata.Modsfolder
+
+	switch loader {
+	case "quilt":
+		backwardFabric = true
+	case "neoforge":
+		backwardForge = true
+	}
+
+	url_project := fmt.Sprintf("https://api.modrinth.com/v2/search?query=%s&limit=100", modname)
+	client := http.Client{
+		Timeout: time.Second * 5,
+	}
+
+	req, _ := http.NewRequest("GET", url_project, nil)
+	req.Header.Set("User-Agent", FULL_VERSION)
+
+	resp, _ := client.Do(req)
+	body, _ := io.ReadAll(resp.Body)
+	resp.Body.Close()
+
+	var results Searchroot
+	_ = json.Unmarshal(body, &results)
+
+	var sortedresults Searchroot
+
+	for _, hit := range results.Hits {
+		if hit.ProjectType == "mod" && contains(hit.Versions, version) {
+			if backwardForge {
+				if contains(hit.Categories, loader) || contains(hit.Categories, "forge") {
+					sortedresults.Hits = append(sortedresults.Hits, hit)
+				}
+			} else if backwardFabric {
+				if contains(hit.Categories, loader) || contains(hit.Categories, "fabric") {
+					sortedresults.Hits = append(sortedresults.Hits, hit)
+				}
+			} else {
+				if contains(hit.Categories, loader) {
+					sortedresults.Hits = append(sortedresults.Hits, hit)
+				}
+			}
+		}
+	}
+
+	if len(sortedresults.Hits) == 0 {
+		fmt.Println(Red + "No results found" + Reset)
+		return
+	}
+
+	for i := len(sortedresults.Hits) - 1; i >= 0; i-- {
+		fmt.Printf("[%d] %s\n", i+1, sortedresults.Hits[i].Title)
+	}
+
+	in := bufio.NewReader(os.Stdin)
+
+	fmt.Print("Enter numbers of mods you want to install: ")
+
+	selected, _ := in.ReadString('\n')
+
+	selected = strings.TrimSpace(selected)
+
+	substrings := strings.Split(selected, " ")
+
+	var selected_integers []int
+	for _, rand := range substrings {
+		str, _ := strconv.Atoi(rand)
+		selected_integers = append(selected_integers, str-1)
+	}
+
+	var mods_to_download []string
+	for i := range selected_integers {
+		mods_to_download = append(mods_to_download, sortedresults.Hits[selected_integers[i]].ProjectID)
+	}
+
+	type Versions struct {
+		Version []*Version
+	}
+	var latestVersions Versions
+	for i := range mods_to_download {
+		latestVersions.Version = append(latestVersions.Version, FetchLatestVersion(mods_to_download[i], version, loader))
+	}
+
+	var files_to_download []map[string]string
+	for _, root := range latestVersions.Version {
+		for _, file := range root.Files {
+			fileInfo := map[string]string{
+				"url":      file.URL,
+				"filename": file.Filename,
+			}
+			if !strings.Contains(fileInfo["filename"], "sources") {
+				files_to_download = append(files_to_download, fileInfo)
+			}
+		}
+	}
+	downloadFilesConcurrently(modspath, files_to_download)
 }
