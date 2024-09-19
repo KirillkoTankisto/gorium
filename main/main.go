@@ -10,6 +10,7 @@ import (
 	"flag"
 	"fmt"
 	"io"
+	"log"
 	"net/http"
 	"os"
 	"path"
@@ -191,14 +192,16 @@ func FetchLatestVersion(modname string, gameVersion string, loader string) *Vers
 	}
 
 	req, _ := http.NewRequest("GET", url_project, nil)
-
 	req.Header.Set("User-Agent", FULL_VERSION)
 
-	resp, _ := client.Do(req)
+	resp, err := client.Do(req)
+	if err != nil {
+		fmt.Println(Red + "Error fetching the latest version" + Reset)
+		return nil
+	}
+	defer resp.Body.Close()
 
 	body, _ := io.ReadAll(resp.Body)
-
-	resp.Body.Close()
 
 	var versions []Version
 	_ = json.Unmarshal(body, &versions)
@@ -242,18 +245,26 @@ func downloadFile(url string, modspath string, filename string, wg *sync.WaitGro
 		defer wg.Done()
 	}
 
-	response, _ := http.Get(url)
+	response, err := http.Get(url)
+	if err != nil {
+		fmt.Println(Red + "Error downloading the file" + Reset)
+		return
+	}
+	defer response.Body.Close()
 
 	if !dirExists(modspath) {
 		os.Mkdir(modspath, 0755)
 	}
 
-	file, _ := os.Create(path.Join(modspath, filename))
+	file, err := os.Create(path.Join(modspath, filename))
+	if err != nil {
+		fmt.Println(Red + "Error creating file" + Reset)
+		return
+	}
+	defer file.Close()
+
 	fmt.Println("[Downloading] [" + Cyan + filename + Reset + "]")
 	io.Copy(file, response.Body)
-
-	file.Close()
-	response.Body.Close()
 }
 
 func downloadFilesConcurrently(modspath string, urls []map[string]string) {
@@ -261,7 +272,10 @@ func downloadFilesConcurrently(modspath string, urls []map[string]string) {
 	wg.Add(len(urls))
 
 	for _, urlMap := range urls {
-		go downloadFile(urlMap["url"], modspath, urlMap["filename"], &wg)
+		go func(urlMap map[string]string) {
+			downloadFile(urlMap["url"], modspath, urlMap["filename"], nil)
+			wg.Done()
+		}(urlMap)
 	}
 
 	wg.Wait()
@@ -388,9 +402,7 @@ func getSHA1HashesFromDirectory(dir string) []string {
 	for _, file := range files {
 		if !file.IsDir() {
 			filePath := path.Join(dir, file.Name())
-
 			hash := hashFileSHA1(filePath)
-
 			hashes = append(hashes, hash)
 		}
 	}
@@ -398,6 +410,7 @@ func getSHA1HashesFromDirectory(dir string) []string {
 	return hashes
 }
 
+// function to calculate SHA1 hash of a file
 func hashFileSHA1(filePath string) string {
 	file, err := os.Open(filePath)
 	if err != nil {
@@ -406,14 +419,12 @@ func hashFileSHA1(filePath string) string {
 	defer file.Close()
 
 	hash := sha1.New()
-
 	if _, err := io.Copy(hash, file); err != nil {
 		return ""
 	}
 
 	hashInBytes := hash.Sum(nil)[:20]
 	hashString := hex.EncodeToString(hashInBytes)
-
 	return hashString
 }
 
@@ -460,15 +471,25 @@ func upgrade() {
 	req.Header.Set("User-Agent", FULL_VERSION)
 
 	client := &http.Client{}
-	resp, _ := client.Do(req)
+	resp, err := client.Do(req)
+	if err != nil {
+		log.Fatal(err)
+	}
+
+	defer resp.Body.Close()
+
+	body, _ := io.ReadAll(resp.Body)
 
 	req2, _ := http.NewRequest("POST", url2, r2)
 	req2.Header.Set("Content-Type", "application/json")
 	req2.Header.Set("User-Agent", FULL_VERSION)
 
-	resp2, _ := client.Do(req2)
+	resp2, err := client.Do(req2)
+	if err != nil {
+		log.Fatal(err)
+	}
+	defer resp2.Body.Close()
 
-	body, _ := io.ReadAll(resp.Body)
 	body2, _ := io.ReadAll(resp2.Body)
 
 	var rootMap map[string]Root
@@ -557,9 +578,9 @@ func listprofiles() {
 	roots := readFullConfig(configPath)
 	for _, profile := range roots.Profiles {
 		if profile.Active == "*" {
-			fmt.Println(profile.Name + Reset + " [" + Green + "Active" + Reset + "] [" + Cyan + profile.Loader + Reset + ", " + Yellow + profile.Gameversion + Reset + "] [" + White + profile.Modsfolder + Reset + "]")
+			fmt.Printf("%s [%s%s%s] [%s%s%s, %s%s%s] [%s%s%s]\n", profile.Name, Green, "Active", Reset, Cyan, profile.Loader, Reset, Yellow, profile.Gameversion, Reset, White, profile.Modsfolder, Reset)
 		} else {
-			fmt.Println(profile.Name + Reset + " [" + Cyan + profile.Loader + Reset + ", " + Yellow + profile.Gameversion + Reset + "] [" + White + profile.Modsfolder + Reset + "]")
+			fmt.Printf("%s [%s%s%s, %s%s%s] [%s%s%s]\n", profile.Name, Cyan, profile.Loader, Reset, Yellow, profile.Gameversion, Reset, White, profile.Modsfolder, Reset)
 		}
 	}
 }
@@ -612,9 +633,9 @@ func listmods() {
 	json.Unmarshal([]byte(body), &rootMap)
 
 	i := 1
-	
+
 	for _, rand := range rootMap {
-		fmt.Println(fmt.Sprintf("[%d]", i), rand.Name)
+		fmt.Printf("[%d] %s \n", i, rand.Name)
 		i += 1
 	}
 
@@ -659,18 +680,13 @@ func Search(modname string) {
 
 	resp, err := client.Do(req)
 	if err != nil {
-		mods, _ := os.ReadDir(modspath)
-		if len(mods) == 0 {
-			fmt.Println("No mods, type gorium add")
-			return
-		}
-		for _, mod := range mods {
-			fmt.Println(Cyan + mod.Name() + Reset)
-		}
+		fmt.Println(Red + "Error fetching search results" + Reset)
+		return
 	}
-		body, _ := io.ReadAll(resp.Body)
-		resp.Body.Close()
-		var results Searchroot
+	defer resp.Body.Close()
+
+	body, _ := io.ReadAll(resp.Body)
+	var results Searchroot
 	_ = json.Unmarshal(body, &results)
 
 	var sortedresults Searchroot
