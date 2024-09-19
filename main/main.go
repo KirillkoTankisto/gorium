@@ -23,7 +23,7 @@ import (
 	"gorium/cli"
 )
 
-//	variables and constants
+// variables and constants
 const VERSION = "0.1"
 const FULL_VERSION = "Gorium " + VERSION
 
@@ -55,12 +55,20 @@ type Root struct {
 	Categories    []string `json:"categories"`
 	ProjectType   string   `json:"project_type"`
 	Versions      []string `json:"versions"`
+	Name          string   `json:"name"`
 }
 type Searchroot struct {
 	Hits []Root `json:"hits"`
 }
 
-//	console colors
+type HashesToSend struct {
+	Hashes       []string `json:"hashes"`
+	Algorithm    string   `json:"algorithm"`
+	Loaders      []string `json:"loaders"`
+	GameVersions []string `json:"game_versions"`
+}
+
+// console colors
 const (
 	Reset  = "\033[0m"
 	Red    = "\033[31m"
@@ -72,7 +80,7 @@ const (
 	White  = "\033[37m"
 )
 
-//	main function
+// main function
 func main() {
 
 	enableVirtualTerminalProcessing()
@@ -159,12 +167,12 @@ func main() {
 	case "testing":
 		return
 	default:
-		fmt.Println("Unknown command") // error if command is incorrect
+		fmt.Println("Unknown command")
 		return
 	}
 }
 
-// Function for fetching latest version //////////////////////////////////////////////////////////
+//	Function for fetching latest version
 
 type Version struct {
 	GameVersions  []string  `json:"game_versions"`
@@ -228,7 +236,7 @@ func FetchLatestVersion(modname string, gameVersion string, loader string) *Vers
 	return &filteredVersions[0]
 }
 
-// function to download file from url ///////////////////////////////////////////////////////////////////////////////////////////
+// function to download file from url
 func downloadFile(url string, modspath string, filename string, wg *sync.WaitGroup) {
 	if wg != nil {
 		defer wg.Done()
@@ -428,13 +436,6 @@ func upgrade() {
 		return
 	}
 
-	type HashesToSend struct {
-		Hashes       []string `json:"hashes"`
-		Algorithm    string   `json:"algorithm"`
-		Loaders      []string `json:"loaders"`
-		GameVersions []string `json:"game_versions"`
-	}
-
 	data := HashesToSend{
 		Hashes:    hashes,
 		Algorithm: "sha1",
@@ -569,16 +570,55 @@ func listmods() {
 		fmt.Println(Red + "No profile found, type gorium profile create" + Reset)
 		return
 	}
+	url := "https://api.modrinth.com/v2/version_files"
+
 	configdata := readConfig(configPath)
 	modsfolder := configdata.Modsfolder
-	mods, _ := os.ReadDir(modsfolder)
-	if len(mods) == 0 {
-		fmt.Println("No mods, type gorium add")
+	gameversion := configdata.Gameversion
+	loader := configdata.Loader
+	hashes := getSHA1HashesFromDirectory(modsfolder)
+
+	if len(hashes) < 1 {
+		fmt.Println("There's no mods, type gorium add")
 		return
 	}
-	for _, mod := range mods {
-		fmt.Println(Cyan + mod.Name() + Reset)
+
+	data := HashesToSend{
+		Hashes:    hashes,
+		Algorithm: "sha1",
+		Loaders: []string{
+			loader,
+		},
+		GameVersions: []string{
+			gameversion,
+		},
 	}
+
+	jsonData, _ := json.MarshalIndent(data, "", "  ")
+
+	r := bytes.NewReader(jsonData)
+
+	req, _ := http.NewRequest("POST", url, r)
+	req.Header.Set("Content-Type", "application/json")
+	req.Header.Set("User-Agent", FULL_VERSION)
+
+	client := &http.Client{}
+	resp, _ := client.Do(req)
+
+	body, _ := io.ReadAll(resp.Body)
+
+	var rootMap map[string]Root
+
+	json.Unmarshal([]byte(body), &rootMap)
+
+	i := 1
+	
+	for _, rand := range rootMap {
+		fmt.Println(fmt.Sprintf("[%d]", i), rand.Name)
+		i += 1
+	}
+
+	return
 }
 
 func contains(slice []string, str string) bool {
@@ -617,11 +657,20 @@ func Search(modname string) {
 	req, _ := http.NewRequest("GET", url_project, nil)
 	req.Header.Set("User-Agent", FULL_VERSION)
 
-	resp, _ := client.Do(req)
-	body, _ := io.ReadAll(resp.Body)
-	resp.Body.Close()
-
-	var results Searchroot
+	resp, err := client.Do(req)
+	if err != nil {
+		mods, _ := os.ReadDir(modspath)
+		if len(mods) == 0 {
+			fmt.Println("No mods, type gorium add")
+			return
+		}
+		for _, mod := range mods {
+			fmt.Println(Cyan + mod.Name() + Reset)
+		}
+	}
+		body, _ := io.ReadAll(resp.Body)
+		resp.Body.Close()
+		var results Searchroot
 	_ = json.Unmarshal(body, &results)
 
 	var sortedresults Searchroot
