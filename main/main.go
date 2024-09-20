@@ -185,7 +185,7 @@ type Version struct {
 
 func FetchLatestVersion(modname string, gameVersion string, loader string) *Version {
 
-	url_project := "https://api.modrinth.com/v2/project/" + modname + "/version?game_versions=" + gameVersion
+	url_project := fmt.Sprintf("https://api.modrinth.com/v2/project/%s/version", modname)
 
 	client := http.Client{
 		Timeout: time.Second * 5,
@@ -204,7 +204,7 @@ func FetchLatestVersion(modname string, gameVersion string, loader string) *Vers
 	body, _ := io.ReadAll(resp.Body)
 
 	var versions []Version
-	_ = json.Unmarshal(body, &versions)
+	json.Unmarshal(body, &versions)
 
 	switch loader {
 	case "quilt":
@@ -247,8 +247,7 @@ func downloadFile(url string, modspath string, filename string, wg *sync.WaitGro
 
 	response, err := http.Get(url)
 	if err != nil {
-		fmt.Println(Red + "Error downloading the file" + Reset)
-		return
+		log.Fatalf("%sError downloading the file%s", Red, Reset)
 	}
 	defer response.Body.Close()
 
@@ -258,12 +257,12 @@ func downloadFile(url string, modspath string, filename string, wg *sync.WaitGro
 
 	file, err := os.Create(path.Join(modspath, filename))
 	if err != nil {
-		fmt.Println(Red + "Error creating file" + Reset)
+		log.Fatalf("%sError creating file%s", Red, Reset)
 		return
 	}
 	defer file.Close()
 
-	fmt.Println("[Downloading] [" + Cyan + filename + Reset + "]")
+	fmt.Printf("[Downloading] [%s%s%s]", Cyan, filename, Reset)
 	io.Copy(file, response.Body)
 }
 
@@ -380,7 +379,7 @@ func readFullConfig(path string) MultiConfig {
 func deleteConfig() {
 	configpath, _ := getConfigPath()
 	if !dirExists(configpath) {
-		fmt.Println(Red + "No profile found to delete" + Reset)
+		fmt.Printf("%sNo profile found to delete%s", Red, Reset)
 		return
 	}
 	os.Remove(configpath)
@@ -431,10 +430,14 @@ func hashFileSHA1(filePath string) string {
 func upgrade() {
 	configPath, _ := getConfigPath()
 	if !dirExists(configPath) {
-		fmt.Println(Red + "No profile found to upgrade" + Reset)
+		fmt.Printf("%sNo profile found to upgrade%s", Red, Reset)
 		return
 	}
 	configdata := readConfig(configPath)
+	if len(configdata.Name) == 0 {
+		fmt.Printf("%sNo profile found to upgrade%s", Red, Reset)
+		return
+	}
 
 	modspath := configdata.Modsfolder
 	loader := configdata.Loader
@@ -540,7 +543,7 @@ func upgrade() {
 	}
 
 	downloadFilesConcurrently(modspath, fileList)
-	fmt.Println(Green + "Upgrade completed succesfully" + Reset)
+	fmt.Printf("\n%sUpgrade completed succesfully%s", Green, Reset)
 }
 
 func switchprofile() {
