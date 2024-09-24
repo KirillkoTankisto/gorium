@@ -4,7 +4,8 @@ package main
 import (
 	"bufio"
 	"bytes"
-	"crypto/sha1"
+	"crypto/rand"
+	"crypto/sha512"
 	"encoding/hex"
 	"encoding/json"
 	"flag"
@@ -37,6 +38,7 @@ type Config struct {
 	Modsfolder  string `json:"modsfolder"`
 	Gameversion string `json:"gameversion"`
 	Loader      string `json:"loader"`
+	Hash        string `json:"hash"`
 }
 
 type MultiConfig struct {
@@ -262,7 +264,7 @@ func downloadFile(url string, modspath string, filename string, wg *sync.WaitGro
 	}
 	defer file.Close()
 
-	fmt.Printf("[Downloading] [%s%s%s]", Cyan, filename, Reset)
+	fmt.Printf("[Downloading] [%s%s%s]\n", Cyan, filename, Reset)
 	io.Copy(file, response.Body)
 }
 
@@ -292,7 +294,7 @@ func dirExists(path string) bool {
 }
 
 func createConfig() {
-	folder, mineversion, loader, name := getConfigDataToWrite()
+	folder, mineversion, loader, name, hash := getConfigDataToWrite()
 
 	newConfig := Config{
 		Modsfolder:  path.Join(folder, ""),
@@ -300,6 +302,7 @@ func createConfig() {
 		Loader:      loader,
 		Name:        name,
 		Active:      "*",
+		Hash:        hash,
 	}
 
 	configpath, _ := getConfigPath()
@@ -317,11 +320,12 @@ func createConfig() {
 	os.WriteFile(configpath, jsonData, 0644)
 }
 
-func getConfigDataToWrite() (string, string, string, string) {
+func getConfigDataToWrite() (string, string, string, string, string) {
 	var folder string
 	var mineversion string
 	var loader string
 	var name string
+	var hash string
 	for i := 0; i < 4; {
 		switch i {
 		case 0:
@@ -352,7 +356,8 @@ func getConfigDataToWrite() (string, string, string, string) {
 			}
 		}
 	}
-	return folder, mineversion, loader, name
+	hash = generateRandomHash()
+	return folder, mineversion, loader, name, hash
 }
 
 func readConfig(path string) Config {
@@ -390,7 +395,21 @@ func getConfigPath() (string, string) {
 	return path.Join(home, ".config", "gorium", "config.json"), path.Join(home, ".config", "gorium")
 }
 
-func getSHA1HashesFromDirectory(dir string) []string {
+func generateRandomHash() string {
+	randomBytes := make([]byte, 64)
+	_, err := rand.Read(randomBytes)
+	if err != nil {
+		log.Fatal(err)
+	}
+
+	hash := sha512.New()
+	hash.Write(randomBytes)
+
+	hashString := hex.EncodeToString(hash.Sum(nil))
+	return hashString
+}
+
+func getSHA512HashesFromDirectory(dir string) []string {
 	var hashes []string
 
 	files, err := os.ReadDir(dir)
@@ -401,7 +420,7 @@ func getSHA1HashesFromDirectory(dir string) []string {
 	for _, file := range files {
 		if !file.IsDir() {
 			filePath := path.Join(dir, file.Name())
-			hash := hashFileSHA1(filePath)
+			hash := hashFileSHA512(filePath)
 			hashes = append(hashes, hash)
 		}
 	}
@@ -409,20 +428,20 @@ func getSHA1HashesFromDirectory(dir string) []string {
 	return hashes
 }
 
-// function to calculate SHA1 hash of a file
-func hashFileSHA1(filePath string) string {
+// function to calculate SHA512 from file
+func hashFileSHA512(filePath string) string {
 	file, err := os.Open(filePath)
 	if err != nil {
 		return ""
 	}
 	defer file.Close()
 
-	hash := sha1.New()
+	hash := sha512.New()
 	if _, err := io.Copy(hash, file); err != nil {
 		return ""
 	}
 
-	hashInBytes := hash.Sum(nil)[:20]
+	hashInBytes := hash.Sum(nil)
 	hashString := hex.EncodeToString(hashInBytes)
 	return hashString
 }
@@ -443,19 +462,27 @@ func upgrade() {
 	loader := configdata.Loader
 	gameversion := configdata.Gameversion
 
-	hashes := getSHA1HashesFromDirectory(modspath)
+	hashes := getSHA512HashesFromDirectory(modspath)
 
 	if len(hashes) < 1 {
 		fmt.Println("There's no mods, type gorium add")
 		return
 	}
 
+	loaderlist := []string{loader}
+
+	switch loader {
+	case "quilt":
+		loaderlist = append(loaderlist, "fabric")
+	case "neoforge":
+		loaderlist = append(loaderlist, "forge")
+	default:
+	}
+
 	data := HashesToSend{
 		Hashes:    hashes,
-		Algorithm: "sha1",
-		Loaders: []string{
-			loader,
-		},
+		Algorithm: "sha512",
+		Loaders:   loaderlist,
 		GameVersions: []string{
 			gameversion,
 		},
@@ -543,7 +570,8 @@ func upgrade() {
 	}
 
 	downloadFilesConcurrently(modspath, fileList)
-	fmt.Printf("\n%sUpgrade completed succesfully%s", Green, Reset)
+	fmt.Printf("%sUpgrade completed succesfully%s", Green, Reset)
+	return
 }
 
 func switchprofile() {
@@ -552,9 +580,9 @@ func switchprofile() {
 	switchmenu := cli.NewMenu("Choose profile")
 	for _, profile := range roots.Profiles {
 		if profile.Active == "*" {
-			switchmenu.AddItem(profile.Name+Reset+" ["+Green+"Active"+Reset+"] ["+Cyan+profile.Loader+Reset+", "+Yellow+profile.Gameversion+Reset+"] ["+White+profile.Modsfolder+Reset+"]", profile.Name)
+			switchmenu.AddItem(fmt.Sprintf("%s %s[%s%s%s] [%s%s%s, %s%s%s] [%s%s%s]", profile.Name, Reset, Green, "Active", Reset, Cyan, profile.Loader, Reset, Yellow, profile.Gameversion, Reset, White, profile.Modsfolder, Reset), profile.Hash)
 		} else {
-			switchmenu.AddItem(profile.Name+Reset+" ["+Cyan+profile.Loader+Reset+", "+Yellow+profile.Gameversion+Reset+"] ["+White+profile.Modsfolder+Reset+"]", profile.Name)
+			switchmenu.AddItem(fmt.Sprintf("%s %s[%s%s%s, %s%s%s] [%s%s%s]", profile.Name, Reset, Cyan, profile.Loader, Reset, Yellow, profile.Gameversion, Reset, White, profile.Modsfolder, Reset), profile.Hash)
 		}
 	}
 	if len(switchmenu.MenuItems) < 2 {
@@ -566,7 +594,7 @@ func switchprofile() {
 		if roots.Profiles[i].Active == "*" {
 			roots.Profiles[i].Active = ""
 		}
-		if roots.Profiles[i].Name == choosenprofile {
+		if roots.Profiles[i].Hash == choosenprofile {
 			roots.Profiles[i].Active = "*"
 		}
 	}
@@ -600,7 +628,7 @@ func listmods() {
 	modsfolder := configdata.Modsfolder
 	gameversion := configdata.Gameversion
 	loader := configdata.Loader
-	hashes := getSHA1HashesFromDirectory(modsfolder)
+	hashes := getSHA512HashesFromDirectory(modsfolder)
 
 	if len(hashes) < 1 {
 		fmt.Println("There's no mods, type gorium add")
@@ -690,7 +718,7 @@ func Search(modname string) {
 
 	body, _ := io.ReadAll(resp.Body)
 	var results Searchroot
-	_ = json.Unmarshal(body, &results)
+	json.Unmarshal(body, &results)
 
 	var sortedresults Searchroot
 
