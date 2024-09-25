@@ -138,7 +138,7 @@ func main() {
 			return
 		}
 
-		downloadFile(latestVersion.Files[0].URL, modspath, latestVersion.Files[0].Filename, nil)
+		downloadFile(latestVersion.Files[0].URL, modspath, latestVersion.Files[0].Filename)
 		return
 
 	case "profile":
@@ -242,30 +242,32 @@ func FetchLatestVersion(modname string, gameVersion string, loader string) *Vers
 }
 
 // function to download file from url
-func downloadFile(url string, modspath string, filename string, wg *sync.WaitGroup) {
-	if wg != nil {
-		defer wg.Done()
-	}
-
+func downloadFile(url string, modspath string, filename string) error {
 	response, err := http.Get(url)
 	if err != nil {
-		log.Fatalf("%sError downloading the file%s", Red, Reset)
+		return fmt.Errorf("error downloading the file: %w", err)
 	}
 	defer response.Body.Close()
 
 	if !dirExists(modspath) {
-		os.Mkdir(modspath, 0755)
+		if err := os.Mkdir(modspath, 0755); err != nil {
+			return fmt.Errorf("error creating mods directory: %w", err)
+		}
 	}
 
 	file, err := os.Create(path.Join(modspath, filename))
 	if err != nil {
-		log.Fatalf("%sError creating file%s", Red, Reset)
-		return
+		return fmt.Errorf("error creating file: %w", err)
 	}
 	defer file.Close()
 
 	fmt.Printf("[Downloading] [%s%s%s]\n", Cyan, filename, Reset)
-	io.Copy(file, response.Body)
+
+	if _, err := io.Copy(file, response.Body); err != nil {
+		return fmt.Errorf("error writing to file: %w", err)
+	}
+
+	return nil
 }
 
 func downloadFilesConcurrently(modspath string, urls []map[string]string) {
@@ -274,8 +276,10 @@ func downloadFilesConcurrently(modspath string, urls []map[string]string) {
 
 	for _, urlMap := range urls {
 		go func(urlMap map[string]string) {
-			downloadFile(urlMap["url"], modspath, urlMap["filename"], nil)
-			wg.Done()
+			defer wg.Done()
+			if err := downloadFile(urlMap["url"], modspath, urlMap["filename"]); err != nil {
+				log.Printf("%sError: %s%s", Red, err.Error(), Reset)
+			}
 		}(urlMap)
 	}
 
