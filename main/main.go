@@ -25,18 +25,17 @@ import (
 	"gorium/cli"
 )
 
-// variables and constants
-const VERSION = "0.1"
-const FULL_VERSION = "Gorium " + VERSION
+// ProgramVersion variables and constants
+const ProgramVersion = "0.1"
+const FullVersion = "Gorium " + ProgramVersion
 
 var backwardFabric, backwardForge = false, false
-var loaderSlice = []string{"quilt", "fabric", "neoforge", "forge"}
 
 type Config struct {
 	Active      string `json:"active"`
 	Name        string `json:"name"`
-	Modsfolder  string `json:"modsfolder"`
-	Gameversion string `json:"gameversion"`
+	ModsFolder  string `json:"modsfolder"`
+	GameVersion string `json:"gameversion"`
 	Loader      string `json:"loader"`
 	Hash        string `json:"hash"`
 }
@@ -60,7 +59,7 @@ type Root struct {
 	Versions      []string `json:"versions"`
 	Name          string   `json:"name"`
 }
-type Searchroot struct {
+type SearchRoot struct {
 	Hits []Root `json:"hits"`
 }
 
@@ -88,20 +87,26 @@ func main() {
 
 	enableVirtualTerminalProcessing()
 
-	configpath, configfolder := getConfigPath()
+	configPath, configFolder := getConfigPath()
 
-	if !dirExists(configpath) {
-		datatowrite := MultiConfig{
+	if !dirExists(configPath) {
+		dataToWrite := MultiConfig{
 			Profiles: []Config{},
 		}
 
-		jsonData, _ := json.MarshalIndent(datatowrite, "", "  ")
+		jsonData, _ := json.MarshalIndent(dataToWrite, "", "  ")
 
-		if !dirExists(configfolder) {
-			os.MkdirAll(configfolder, 0755)
+		if !dirExists(configFolder) {
+			err := os.MkdirAll(configFolder, 0755)
+			if err != nil {
+				log.Fatal(err)
+			}
 		}
 
-		os.WriteFile(configpath, jsonData, 0644)
+		err := os.WriteFile(configPath, jsonData, 0644)
+		if err != nil {
+			log.Fatal(err)
+		}
 	}
 
 	getProject := flag.NewFlagSet("add", flag.ExitOnError)
@@ -115,34 +120,43 @@ func main() {
 
 	switch os.Args[1] {
 	case "version":
-		fmt.Println("Gorium", VERSION)
+		fmt.Println("Gorium", ProgramVersion)
 		return
 	case "add":
-		getProject.Parse(os.Args[2:])
+		err := getProject.Parse(os.Args[2:])
+		if err != nil {
+			log.Fatal(err)
+		}
 
 		configPath, _ := getConfigPath()
 		if !dirExists(configPath) {
 			fmt.Println(Red + "No profile found, type gorium profile create" + Reset)
 			return
 		}
-		configdata := readConfig(configPath)
+		configData := readConfig(configPath)
 
-		gameversion := configdata.Gameversion
-		loader := configdata.Loader
-		modspath := configdata.Modsfolder
+		gameVersion := configData.GameVersion
+		loader := configData.Loader
+		modsPath := configData.ModsFolder
 
-		modname := os.Args[2]
+		modName := os.Args[2]
 
-		latestVersion := FetchLatestVersion(modname, gameversion, loader)
+		latestVersion := FetchLatestVersion(modName, gameVersion, loader)
 		if latestVersion == nil {
 			return
 		}
 
-		downloadFile(latestVersion.Files[0].URL, modspath, latestVersion.Files[0].Filename)
+		err = downloadFile(latestVersion.Files[0].URL, modsPath, latestVersion.Files[0].Filename)
+		if err != nil {
+			log.Fatal(err)
+		}
 		return
 
 	case "profile":
-		createProfile.Parse(os.Args[2:])
+		err := createProfile.Parse(os.Args[2:])
+		if err != nil {
+			log.Fatal(err)
+		}
 
 		switch os.Args[2] {
 		case "create":
@@ -150,9 +164,9 @@ func main() {
 		case "delete":
 			deleteConfig()
 		case "switch":
-			switchprofile()
+			switchProfile()
 		case "list":
-			listprofiles()
+			listProfiles()
 			return
 		}
 		return
@@ -161,12 +175,15 @@ func main() {
 		upgrade()
 		return
 	case "list":
-		listmods()
+		listMods()
 		return
 	case "search":
-		searchMod.Parse(os.Args[2:])
-		modname := os.Args[2]
-		Search(modname)
+		err := searchMod.Parse(os.Args[2:])
+		if err != nil {
+			log.Fatal(err)
+		}
+		modName := os.Args[2]
+		Search(modName)
 	case "testing":
 		return
 	default:
@@ -185,28 +202,36 @@ type Version struct {
 	DatePublished time.Time `json:"date_published"`
 }
 
-func FetchLatestVersion(modname string, gameVersion string, loader string) *Version {
+func FetchLatestVersion(modName string, gameVersion string, loader string) *Version {
 
-	url_project := fmt.Sprintf("https://api.modrinth.com/v2/project/%s/version", modname)
+	urlProject := fmt.Sprintf("https://api.modrinth.com/v2/project/%s/version", modName)
 
 	client := http.Client{
 		Timeout: time.Second * 5,
 	}
 
-	req, _ := http.NewRequest("GET", url_project, nil)
-	req.Header.Set("User-Agent", FULL_VERSION)
+	req, _ := http.NewRequest("GET", urlProject, nil)
+	req.Header.Set("User-Agent", FullVersion)
 
 	resp, err := client.Do(req)
 	if err != nil {
 		fmt.Println(Red + "Error fetching the latest version" + Reset)
 		return nil
 	}
-	defer resp.Body.Close()
+	defer func(Body io.ReadCloser) {
+		err := Body.Close()
+		if err != nil {
+			log.Fatal(err)
+		}
+	}(resp.Body)
 
 	body, _ := io.ReadAll(resp.Body)
 
 	var versions []Version
-	json.Unmarshal(body, &versions)
+	err = json.Unmarshal(body, &versions)
+	if err != nil {
+		log.Fatal(err)
+	}
 
 	switch loader {
 	case "quilt":
@@ -242,24 +267,34 @@ func FetchLatestVersion(modname string, gameVersion string, loader string) *Vers
 }
 
 // function to download file from url
-func downloadFile(url string, modspath string, filename string) error {
+func downloadFile(url string, modsPath string, filename string) error {
 	response, err := http.Get(url)
 	if err != nil {
 		return fmt.Errorf("error downloading the file: %w", err)
 	}
-	defer response.Body.Close()
+	defer func(Body io.ReadCloser) {
+		err := Body.Close()
+		if err != nil {
+			log.Fatal(err)
+		}
+	}(response.Body)
 
-	if !dirExists(modspath) {
-		if err := os.Mkdir(modspath, 0755); err != nil {
+	if !dirExists(modsPath) {
+		if err := os.Mkdir(modsPath, 0755); err != nil {
 			return fmt.Errorf("error creating mods directory: %w", err)
 		}
 	}
 
-	file, err := os.Create(path.Join(modspath, filename))
+	file, err := os.Create(path.Join(modsPath, filename))
 	if err != nil {
 		return fmt.Errorf("error creating file: %w", err)
 	}
-	defer file.Close()
+	defer func(file *os.File) {
+		err := file.Close()
+		if err != nil {
+			log.Println(err)
+		}
+	}(file)
 
 	fmt.Printf("[Downloading] [%s%s%s]\n", Cyan, filename, Reset)
 
@@ -270,14 +305,14 @@ func downloadFile(url string, modspath string, filename string) error {
 	return nil
 }
 
-func downloadFilesConcurrently(modspath string, urls []map[string]string) {
+func downloadFilesConcurrently(modsPath string, urls []map[string]string) {
 	var wg sync.WaitGroup
 	wg.Add(len(urls))
 
 	for _, urlMap := range urls {
 		go func(urlMap map[string]string) {
 			defer wg.Done()
-			if err := downloadFile(urlMap["url"], modspath, urlMap["filename"]); err != nil {
+			if err := downloadFile(urlMap["url"], modsPath, urlMap["filename"]); err != nil {
 				log.Printf("%sError: %s%s", Red, err.Error(), Reset)
 			}
 		}(urlMap)
@@ -298,35 +333,38 @@ func dirExists(path string) bool {
 }
 
 func createConfig() {
-	folder, mineversion, loader, name, hash := getConfigDataToWrite()
+	folder, mineVersion, loader, name, hash := getConfigDataToWrite()
 
 	newConfig := Config{
-		Modsfolder:  path.Join(folder, ""),
-		Gameversion: mineversion,
+		ModsFolder:  path.Join(folder, ""),
+		GameVersion: mineVersion,
 		Loader:      loader,
 		Name:        name,
 		Active:      "*",
 		Hash:        hash,
 	}
 
-	configpath, _ := getConfigPath()
+	configPath, _ := getConfigPath()
 
-	oldconf := readFullConfig(configpath)
+	oldConfig := readFullConfig(configPath)
 
-	for i := range oldconf.Profiles {
-		oldconf.Profiles[i].Active = ""
+	for i := range oldConfig.Profiles {
+		oldConfig.Profiles[i].Active = ""
 	}
 
-	oldconf.Profiles = append(oldconf.Profiles, newConfig)
+	oldConfig.Profiles = append(oldConfig.Profiles, newConfig)
 
-	jsonData, _ := json.MarshalIndent(oldconf, "", "  ")
+	jsonData, _ := json.MarshalIndent(oldConfig, "", "  ")
 
-	os.WriteFile(configpath, jsonData, 0644)
+	err := os.WriteFile(configPath, jsonData, 0644)
+	if err != nil {
+		log.Fatal(err)
+	}
 }
 
 func getConfigDataToWrite() (string, string, string, string, string) {
 	var folder string
-	var mineversion string
+	var mineVersion string
 	var loader string
 	var name string
 	var hash string
@@ -334,14 +372,20 @@ func getConfigDataToWrite() (string, string, string, string, string) {
 		switch i {
 		case 0:
 			fmt.Print("Enter mods folder path: ")
-			fmt.Scanln(&folder)
+			_, err := fmt.Scanln(&folder)
+			if err != nil {
+				log.Fatal(err)
+			}
 			if dirExists(folder) {
 				i = 1
 			}
 		case 1:
 			fmt.Print("Enter Minecraft version: ")
-			fmt.Scanln(&mineversion)
-			if mineversion != "" {
+			_, err := fmt.Scanln(&mineVersion)
+			if err != nil {
+				log.Fatal(err)
+			}
+			if mineVersion != "" {
 				i = 2
 			}
 		case 2:
@@ -354,24 +398,30 @@ func getConfigDataToWrite() (string, string, string, string, string) {
 			i = 3
 		case 3:
 			fmt.Print("How does this profile should be called?\n")
-			fmt.Scanln(&name)
+			_, err := fmt.Scanln(&name)
+			if err != nil {
+				log.Fatal(err)
+			}
 			if name != "" {
 				i = 4
 			}
 		}
 	}
 	hash = generateRandomHash()
-	return folder, mineversion, loader, name, hash
+	return folder, mineVersion, loader, name, hash
 }
 
 func readConfig(path string) Config {
 	configFile, _ := os.ReadFile(path)
 
 	var config MultiConfig
-	json.Unmarshal(configFile, &config)
-	for _, rootconfig := range config.Profiles {
-		if rootconfig.Active == "*" {
-			return rootconfig
+	err := json.Unmarshal(configFile, &config)
+	if err != nil {
+		log.Fatal(err)
+	}
+	for _, rootConfig := range config.Profiles {
+		if rootConfig.Active == "*" {
+			return rootConfig
 		}
 	}
 	return Config{}
@@ -381,17 +431,23 @@ func readFullConfig(path string) MultiConfig {
 	configFile, _ := os.ReadFile(path)
 
 	var config MultiConfig
-	json.Unmarshal(configFile, &config)
+	err := json.Unmarshal(configFile, &config)
+	if err != nil {
+		log.Fatal(err)
+	}
 	return config
 }
 
 func deleteConfig() {
-	configpath, _ := getConfigPath()
-	if !dirExists(configpath) {
+	configPath, _ := getConfigPath()
+	if !dirExists(configPath) {
 		fmt.Printf("%sNo profile found to delete%s", Red, Reset)
 		return
 	}
-	os.Remove(configpath)
+	err := os.Remove(configPath)
+	if err != nil {
+		log.Fatal(err)
+	}
 }
 
 func getConfigPath() (string, string) {
@@ -438,7 +494,12 @@ func hashFileSHA512(filePath string) string {
 	if err != nil {
 		return ""
 	}
-	defer file.Close()
+	defer func(file *os.File) {
+		err := file.Close()
+		if err != nil {
+			log.Fatal(err)
+		}
+	}(file)
 
 	hash := sha512.New()
 	if _, err := io.Copy(hash, file); err != nil {
@@ -456,39 +517,39 @@ func upgrade() {
 		fmt.Printf("%sNo profile found to upgrade%s", Red, Reset)
 		return
 	}
-	configdata := readConfig(configPath)
-	if len(configdata.Name) == 0 {
+	configData := readConfig(configPath)
+	if len(configData.Name) == 0 {
 		fmt.Printf("%sNo profile found to upgrade%s", Red, Reset)
 		return
 	}
 
-	modspath := configdata.Modsfolder
-	loader := configdata.Loader
-	gameversion := configdata.Gameversion
+	modsPath := configData.ModsFolder
+	loader := configData.Loader
+	gameVersion := configData.GameVersion
 
-	hashes := getSHA512HashesFromDirectory(modspath)
+	hashes := getSHA512HashesFromDirectory(modsPath)
 
 	if len(hashes) < 1 {
 		fmt.Println("There's no mods, type gorium add")
 		return
 	}
 
-	loaderlist := []string{loader}
+	loaderList := []string{loader}
 
 	switch loader {
 	case "quilt":
-		loaderlist = append(loaderlist, "fabric")
+		loaderList = append(loaderList, "fabric")
 	case "neoforge":
-		loaderlist = append(loaderlist, "forge")
+		loaderList = append(loaderList, "forge")
 	default:
 	}
 
 	data := HashesToSend{
 		Hashes:    hashes,
 		Algorithm: "sha512",
-		Loaders:   loaderlist,
+		Loaders:   loaderList,
 		GameVersions: []string{
-			gameversion,
+			gameVersion,
 		},
 	}
 
@@ -502,7 +563,7 @@ func upgrade() {
 
 	req, _ := http.NewRequest("POST", url, r)
 	req.Header.Set("Content-Type", "application/json")
-	req.Header.Set("User-Agent", FULL_VERSION)
+	req.Header.Set("User-Agent", FullVersion)
 
 	client := &http.Client{}
 	resp, err := client.Do(req)
@@ -510,26 +571,42 @@ func upgrade() {
 		log.Fatal(err)
 	}
 
-	defer resp.Body.Close()
+	defer func(Body io.ReadCloser) {
+		err := Body.Close()
+		if err != nil {
+			log.Fatal(err)
+		}
+	}(resp.Body)
 
 	body, _ := io.ReadAll(resp.Body)
 
 	req2, _ := http.NewRequest("POST", url2, r2)
 	req2.Header.Set("Content-Type", "application/json")
-	req2.Header.Set("User-Agent", FULL_VERSION)
+	req2.Header.Set("User-Agent", FullVersion)
 
 	resp2, err := client.Do(req2)
 	if err != nil {
 		log.Fatal(err)
 	}
-	defer resp2.Body.Close()
+	defer func(Body io.ReadCloser) {
+		err := Body.Close()
+		if err != nil {
+			log.Fatal(err)
+		}
+	}(resp2.Body)
 
 	body2, _ := io.ReadAll(resp2.Body)
 
 	var rootMap map[string]Root
 	var rootMap2 map[string]Root
-	json.Unmarshal([]byte(body), &rootMap)
-	json.Unmarshal([]byte(body2), &rootMap2)
+	err = json.Unmarshal(body, &rootMap)
+	if err != nil {
+		log.Fatal(err)
+	}
+	err = json.Unmarshal(body2, &rootMap2)
+	if err != nil {
+		log.Fatal(err)
+	}
 
 	var fileList []map[string]string
 	var filteredRootMap []Root
@@ -562,7 +639,10 @@ func upgrade() {
 		for _, root3 := range rootMap2 {
 			for _, file3 := range root3.Files {
 				if root2.ProjectID == root3.ProjectID && root2.DatePublished != root3.DatePublished {
-					os.Remove(path.Join(modspath, file3.Filename))
+					err := os.Remove(path.Join(modsPath, file3.Filename))
+					if err != nil {
+						log.Fatal(err)
+					}
 				}
 			}
 		}
@@ -573,54 +653,57 @@ func upgrade() {
 		return
 	}
 
-	downloadFilesConcurrently(modspath, fileList)
+	downloadFilesConcurrently(modsPath, fileList)
 	fmt.Printf("%sUpgrade completed succesfully%s", Green, Reset)
 	return
 }
 
-func switchprofile() {
+func switchProfile() {
 	configPath, _ := getConfigPath()
 	roots := readFullConfig(configPath)
-	switchmenu := cli.NewMenu("Choose profile")
+	switchMenu := cli.NewMenu("Choose profile")
 	for _, profile := range roots.Profiles {
 		if profile.Active == "*" {
-			switchmenu.AddItem(fmt.Sprintf("%s %s[%s%s%s] [%s%s%s, %s%s%s] [%s%s%s]", profile.Name, Reset, Green, "Active", Reset, Cyan, profile.Loader, Reset, Yellow, profile.Gameversion, Reset, White, profile.Modsfolder, Reset), profile.Hash)
+			switchMenu.AddItem(fmt.Sprintf("%s %s[%s%s%s] [%s%s%s, %s%s%s] [%s%s%s]", profile.Name, Reset, Green, "Active", Reset, Cyan, profile.Loader, Reset, Yellow, profile.GameVersion, Reset, White, profile.ModsFolder, Reset), profile.Hash)
 		} else {
-			switchmenu.AddItem(fmt.Sprintf("%s %s[%s%s%s, %s%s%s] [%s%s%s]", profile.Name, Reset, Cyan, profile.Loader, Reset, Yellow, profile.Gameversion, Reset, White, profile.Modsfolder, Reset), profile.Hash)
+			switchMenu.AddItem(fmt.Sprintf("%s %s[%s%s%s, %s%s%s] [%s%s%s]", profile.Name, Reset, Cyan, profile.Loader, Reset, Yellow, profile.GameVersion, Reset, White, profile.ModsFolder, Reset), profile.Hash)
 		}
 	}
-	if len(switchmenu.MenuItems) < 2 {
+	if len(switchMenu.MenuItems) < 2 {
 		fmt.Println("No profiles to switch")
 		return
 	}
-	choosenprofile := switchmenu.Display()
+	chosenProfile := switchMenu.Display()
 	for i := range roots.Profiles {
 		if roots.Profiles[i].Active == "*" {
 			roots.Profiles[i].Active = ""
 		}
-		if roots.Profiles[i].Hash == choosenprofile {
+		if roots.Profiles[i].Hash == chosenProfile {
 			roots.Profiles[i].Active = "*"
 		}
 	}
 
 	jsonData, _ := json.MarshalIndent(roots, "", "  ")
 
-	os.WriteFile(configPath, jsonData, 0644)
+	err := os.WriteFile(configPath, jsonData, 0644)
+	if err != nil {
+		log.Fatal(err)
+	}
 }
 
-func listprofiles() {
+func listProfiles() {
 	configPath, _ := getConfigPath()
 	roots := readFullConfig(configPath)
 	for _, profile := range roots.Profiles {
 		if profile.Active == "*" {
-			fmt.Printf("%s [%s%s%s] [%s%s%s, %s%s%s] [%s%s%s]\n", profile.Name, Green, "Active", Reset, Cyan, profile.Loader, Reset, Yellow, profile.Gameversion, Reset, White, profile.Modsfolder, Reset)
+			fmt.Printf("%s [%s%s%s] [%s%s%s, %s%s%s] [%s%s%s]\n", profile.Name, Green, "Active", Reset, Cyan, profile.Loader, Reset, Yellow, profile.GameVersion, Reset, White, profile.ModsFolder, Reset)
 		} else {
-			fmt.Printf("%s [%s%s%s, %s%s%s] [%s%s%s]\n", profile.Name, Cyan, profile.Loader, Reset, Yellow, profile.Gameversion, Reset, White, profile.Modsfolder, Reset)
+			fmt.Printf("%s [%s%s%s, %s%s%s] [%s%s%s]\n", profile.Name, Cyan, profile.Loader, Reset, Yellow, profile.GameVersion, Reset, White, profile.ModsFolder, Reset)
 		}
 	}
 }
 
-func listmods() {
+func listMods() {
 	configPath, _ := getConfigPath()
 	if !dirExists(configPath) {
 		fmt.Println(Red + "No profile found, type gorium profile create" + Reset)
@@ -628,11 +711,11 @@ func listmods() {
 	}
 	url := "https://api.modrinth.com/v2/version_files"
 
-	configdata := readConfig(configPath)
-	modsfolder := configdata.Modsfolder
-	gameversion := configdata.Gameversion
-	loader := configdata.Loader
-	hashes := getSHA512HashesFromDirectory(modsfolder)
+	configData := readConfig(configPath)
+	modsFolder := configData.ModsFolder
+	gameVersion := configData.GameVersion
+	loader := configData.Loader
+	hashes := getSHA512HashesFromDirectory(modsFolder)
 
 	if len(hashes) < 1 {
 		fmt.Println("There's no mods, type gorium add")
@@ -646,7 +729,7 @@ func listmods() {
 			loader,
 		},
 		GameVersions: []string{
-			gameversion,
+			gameVersion,
 		},
 	}
 
@@ -656,7 +739,7 @@ func listmods() {
 
 	req, _ := http.NewRequest("POST", url, r)
 	req.Header.Set("Content-Type", "application/json")
-	req.Header.Set("User-Agent", FULL_VERSION)
+	req.Header.Set("User-Agent", FullVersion)
 
 	client := &http.Client{}
 	resp, _ := client.Do(req)
@@ -665,12 +748,15 @@ func listmods() {
 
 	var rootMap map[string]Root
 
-	json.Unmarshal([]byte(body), &rootMap)
+	err := json.Unmarshal(body, &rootMap)
+	if err != nil {
+		log.Fatal(err)
+	}
 
 	i := 1
 
-	for _, rand := range rootMap {
-		fmt.Printf("[%d] %s \n", i, rand.Name)
+	for _, root := range rootMap {
+		fmt.Printf("[%d] %s \n", i, root.Name)
 		i += 1
 	}
 
@@ -686,17 +772,17 @@ func contains(slice []string, str string) bool {
 	return false
 }
 
-func Search(modname string) {
+func Search(modName string) {
 	configPath, _ := getConfigPath()
 	if !dirExists(configPath) {
 		fmt.Println(Red + "No profile found, type gorium profile create" + Reset)
 		return
 	}
-	configdata := readConfig(configPath)
+	configData := readConfig(configPath)
 
-	loader := configdata.Loader
-	version := configdata.Gameversion
-	modspath := configdata.Modsfolder
+	loader := configData.Loader
+	version := configData.GameVersion
+	modsPath := configData.ModsFolder
 
 	switch loader {
 	case "quilt":
@@ -705,52 +791,60 @@ func Search(modname string) {
 		backwardForge = true
 	}
 
-	url_project := fmt.Sprintf("https://api.modrinth.com/v2/search?query=%s&limit=100", modname)
+	urlProject := fmt.Sprintf("https://api.modrinth.com/v2/search?query=%s&limit=100", modName)
 	client := http.Client{
 		Timeout: time.Second * 5,
 	}
 
-	req, _ := http.NewRequest("GET", url_project, nil)
-	req.Header.Set("User-Agent", FULL_VERSION)
+	req, _ := http.NewRequest("GET", urlProject, nil)
+	req.Header.Set("User-Agent", FullVersion)
 
 	resp, err := client.Do(req)
 	if err != nil {
 		fmt.Println(Red + "Error fetching search results" + Reset)
 		return
 	}
-	defer resp.Body.Close()
+	defer func(Body io.ReadCloser) {
+		err := Body.Close()
+		if err != nil {
+			log.Fatal(err)
+		}
+	}(resp.Body)
 
 	body, _ := io.ReadAll(resp.Body)
-	var results Searchroot
-	json.Unmarshal(body, &results)
+	var results SearchRoot
+	err = json.Unmarshal(body, &results)
+	if err != nil {
+		log.Fatal(err)
+	}
 
-	var sortedresults Searchroot
+	var sortedResults SearchRoot
 
 	for _, hit := range results.Hits {
 		if hit.ProjectType == "mod" && contains(hit.Versions, version) {
 			if backwardForge {
 				if contains(hit.Categories, loader) || contains(hit.Categories, "forge") {
-					sortedresults.Hits = append(sortedresults.Hits, hit)
+					sortedResults.Hits = append(sortedResults.Hits, hit)
 				}
 			} else if backwardFabric {
 				if contains(hit.Categories, loader) || contains(hit.Categories, "fabric") {
-					sortedresults.Hits = append(sortedresults.Hits, hit)
+					sortedResults.Hits = append(sortedResults.Hits, hit)
 				}
 			} else {
 				if contains(hit.Categories, loader) {
-					sortedresults.Hits = append(sortedresults.Hits, hit)
+					sortedResults.Hits = append(sortedResults.Hits, hit)
 				}
 			}
 		}
 	}
 
-	if len(sortedresults.Hits) == 0 {
+	if len(sortedResults.Hits) == 0 {
 		fmt.Println(Red + "No results found" + Reset)
 		return
 	}
 
-	for i := len(sortedresults.Hits) - 1; i >= 0; i-- {
-		fmt.Printf("[%d] %s\n", i+1, sortedresults.Hits[i].Title)
+	for i := len(sortedResults.Hits) - 1; i >= 0; i-- {
+		fmt.Printf("[%d] %s\n", i+1, sortedResults.Hits[i].Title)
 	}
 
 	in := bufio.NewReader(os.Stdin)
@@ -763,26 +857,26 @@ func Search(modname string) {
 
 	substrings := strings.Split(selected, " ")
 
-	var selected_integers []int
-	for _, rand := range substrings {
-		str, _ := strconv.Atoi(rand)
-		selected_integers = append(selected_integers, str-1)
+	var selectedIntegers []int
+	for _, oneString := range substrings {
+		str, _ := strconv.Atoi(oneString)
+		selectedIntegers = append(selectedIntegers, str-1)
 	}
 
-	var mods_to_download []string
-	for i := range selected_integers {
-		mods_to_download = append(mods_to_download, sortedresults.Hits[selected_integers[i]].ProjectID)
+	var modsToDownload []string
+	for i := range selectedIntegers {
+		modsToDownload = append(modsToDownload, sortedResults.Hits[selectedIntegers[i]].ProjectID)
 	}
 
 	type Versions struct {
 		Version []*Version
 	}
 	var latestVersions Versions
-	for i := range mods_to_download {
-		latestVersions.Version = append(latestVersions.Version, FetchLatestVersion(mods_to_download[i], version, loader))
+	for i := range modsToDownload {
+		latestVersions.Version = append(latestVersions.Version, FetchLatestVersion(modsToDownload[i], version, loader))
 	}
 
-	var files_to_download []map[string]string
+	var filesToDownload []map[string]string
 	for _, root := range latestVersions.Version {
 		for _, file := range root.Files {
 			fileInfo := map[string]string{
@@ -790,9 +884,9 @@ func Search(modname string) {
 				"filename": file.Filename,
 			}
 			if !strings.Contains(fileInfo["filename"], "sources") {
-				files_to_download = append(files_to_download, fileInfo)
+				filesToDownload = append(filesToDownload, fileInfo)
 			}
 		}
 	}
-	downloadFilesConcurrently(modspath, files_to_download)
+	downloadFilesConcurrently(modsPath, filesToDownload)
 }
