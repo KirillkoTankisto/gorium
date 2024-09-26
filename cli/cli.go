@@ -102,17 +102,16 @@ func (m *Menu) Display() string {
 func getInput() byte {
 	fd := int(os.Stdin.Fd())
 	oldState, err := term.MakeRaw(fd)
-	if err != nil {
-		log.Fatal(err)
-	}
-	defer term.Restore(fd, oldState)
+	checkError(err)
+	defer func(fd int, oldState *term.State) {
+		err := term.Restore(fd, oldState)
+		checkError(err)
+	}(fd, oldState)
 
 	var read int
 	readBytes := make([]byte, 3)
 	read, err = os.Stdin.Read(readBytes)
-	if err != nil {
-		log.Fatal(err)
-	}
+	checkError(err)
 
 	if read == 3 {
 		if _, ok := keys[readBytes[2]]; ok {
@@ -123,4 +122,10 @@ func getInput() byte {
 	}
 
 	return 0
+}
+
+func checkError(err error) {
+	if err != nil {
+		log.Fatal(err)
+	}
 }
