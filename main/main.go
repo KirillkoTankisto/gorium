@@ -98,15 +98,11 @@ func main() {
 
 		if !dirExists(configFolder) {
 			err := os.MkdirAll(configFolder, 0755)
-			if err != nil {
-				log.Fatal(err)
-			}
+			checkError(err)
 		}
 
 		err := os.WriteFile(configPath, jsonData, 0644)
-		if err != nil {
-			log.Fatal(err)
-		}
+		checkError(err)
 	}
 
 	getProject := flag.NewFlagSet("add", flag.ExitOnError)
@@ -124,9 +120,7 @@ func main() {
 		return
 	case "add":
 		err := getProject.Parse(os.Args[2:])
-		if err != nil {
-			log.Fatal(err)
-		}
+		checkError(err)
 
 		configPath, _ := getConfigPath()
 		if !dirExists(configPath) {
@@ -147,16 +141,12 @@ func main() {
 		}
 
 		err = downloadFile(latestVersion.Files[0].URL, modsPath, latestVersion.Files[0].Filename)
-		if err != nil {
-			log.Fatal(err)
-		}
+		checkError(err)
 		return
 
 	case "profile":
 		err := createProfile.Parse(os.Args[2:])
-		if err != nil {
-			log.Fatal(err)
-		}
+		checkError(err)
 
 		switch os.Args[2] {
 		case "create":
@@ -179,9 +169,7 @@ func main() {
 		return
 	case "search":
 		err := searchMod.Parse(os.Args[2:])
-		if err != nil {
-			log.Fatal(err)
-		}
+		checkError(err)
 		modName := os.Args[2]
 		Search(modName)
 	case "testing":
@@ -220,18 +208,14 @@ func FetchLatestVersion(modName string, gameVersion string, loader string) *Vers
 	}
 	defer func(Body io.ReadCloser) {
 		err := Body.Close()
-		if err != nil {
-			log.Fatal(err)
-		}
+		checkError(err)
 	}(resp.Body)
 
 	body, _ := io.ReadAll(resp.Body)
 
 	var versions []Version
 	err = json.Unmarshal(body, &versions)
-	if err != nil {
-		log.Fatal(err)
-	}
+	checkError(err)
 
 	switch loader {
 	case "quilt":
@@ -274,15 +258,12 @@ func downloadFile(url string, modsPath string, filename string) error {
 	}
 	defer func(Body io.ReadCloser) {
 		err := Body.Close()
-		if err != nil {
-			log.Fatal(err)
-		}
+		checkError(err)
 	}(response.Body)
 
 	if !dirExists(modsPath) {
-		if err := os.Mkdir(modsPath, 0755); err != nil {
-			return fmt.Errorf("error creating mods directory: %w", err)
-		}
+		err := os.Mkdir(modsPath, 0755)
+		checkError(err)
 	}
 
 	file, err := os.Create(path.Join(modsPath, filename))
@@ -291,16 +272,13 @@ func downloadFile(url string, modsPath string, filename string) error {
 	}
 	defer func(file *os.File) {
 		err := file.Close()
-		if err != nil {
-			log.Println(err)
-		}
+		checkError(err)
 	}(file)
 
 	fmt.Printf("[Downloading] [%s%s%s]\n", Cyan, filename, Reset)
 
-	if _, err := io.Copy(file, response.Body); err != nil {
-		return fmt.Errorf("error writing to file: %w", err)
-	}
+	_, err = io.Copy(file, response.Body)
+	checkError(err)
 
 	return nil
 }
@@ -357,9 +335,7 @@ func createConfig() {
 	jsonData, _ := json.MarshalIndent(oldConfig, "", "  ")
 
 	err := os.WriteFile(configPath, jsonData, 0644)
-	if err != nil {
-		log.Fatal(err)
-	}
+	checkError(err)
 }
 
 func getConfigDataToWrite() (string, string, string, string, string) {
@@ -373,18 +349,14 @@ func getConfigDataToWrite() (string, string, string, string, string) {
 		case 0:
 			fmt.Print("Enter mods folder path: ")
 			_, err := fmt.Scanln(&folder)
-			if err != nil {
-				log.Fatal(err)
-			}
+			checkError(err)
 			if dirExists(folder) {
 				i = 1
 			}
 		case 1:
 			fmt.Print("Enter Minecraft version: ")
 			_, err := fmt.Scanln(&mineVersion)
-			if err != nil {
-				log.Fatal(err)
-			}
+			checkError(err)
 			if mineVersion != "" {
 				i = 2
 			}
@@ -399,9 +371,7 @@ func getConfigDataToWrite() (string, string, string, string, string) {
 		case 3:
 			fmt.Print("How does this profile should be called?\n")
 			_, err := fmt.Scanln(&name)
-			if err != nil {
-				log.Fatal(err)
-			}
+			checkError(err)
 			if name != "" {
 				i = 4
 			}
@@ -416,9 +386,7 @@ func readConfig(path string) Config {
 
 	var config MultiConfig
 	err := json.Unmarshal(configFile, &config)
-	if err != nil {
-		log.Fatal(err)
-	}
+	checkError(err)
 	for _, rootConfig := range config.Profiles {
 		if rootConfig.Active == "*" {
 			return rootConfig
@@ -432,9 +400,7 @@ func readFullConfig(path string) MultiConfig {
 
 	var config MultiConfig
 	err := json.Unmarshal(configFile, &config)
-	if err != nil {
-		log.Fatal(err)
-	}
+	checkError(err)
 	return config
 }
 
@@ -445,9 +411,7 @@ func deleteConfig() {
 		return
 	}
 	err := os.Remove(configPath)
-	if err != nil {
-		log.Fatal(err)
-	}
+	checkError(err)
 }
 
 func getConfigPath() (string, string) {
@@ -458,9 +422,7 @@ func getConfigPath() (string, string) {
 func generateRandomHash() string {
 	randomBytes := make([]byte, 64)
 	_, err := rand.Read(randomBytes)
-	if err != nil {
-		log.Fatal(err)
-	}
+	checkError(err)
 
 	hash := sha512.New()
 	hash.Write(randomBytes)
@@ -473,9 +435,7 @@ func getSHA512HashesFromDirectory(dir string) []string {
 	var hashes []string
 
 	files, err := os.ReadDir(dir)
-	if err != nil {
-		return nil
-	}
+	checkError(err)
 
 	for _, file := range files {
 		if !file.IsDir() {
@@ -491,24 +451,25 @@ func getSHA512HashesFromDirectory(dir string) []string {
 // function to calculate SHA512 from file
 func hashFileSHA512(filePath string) string {
 	file, err := os.Open(filePath)
-	if err != nil {
-		return ""
-	}
+	checkError(err)
 	defer func(file *os.File) {
 		err := file.Close()
-		if err != nil {
-			log.Fatal(err)
-		}
+		checkError(err)
 	}(file)
 
 	hash := sha512.New()
-	if _, err := io.Copy(hash, file); err != nil {
-		return ""
-	}
+	_, err = io.Copy(hash, file)
+	checkError(err)
 
 	hashInBytes := hash.Sum(nil)
 	hashString := hex.EncodeToString(hashInBytes)
 	return hashString
+}
+
+func checkError(err error) {
+	if err != nil {
+		log.Fatal(err)
+	}
 }
 
 func upgrade() {
@@ -567,15 +528,11 @@ func upgrade() {
 
 	client := &http.Client{}
 	resp, err := client.Do(req)
-	if err != nil {
-		log.Fatal(err)
-	}
+	checkError(err)
 
 	defer func(Body io.ReadCloser) {
 		err := Body.Close()
-		if err != nil {
-			log.Fatal(err)
-		}
+		checkError(err)
 	}(resp.Body)
 
 	body, _ := io.ReadAll(resp.Body)
@@ -585,14 +542,10 @@ func upgrade() {
 	req2.Header.Set("User-Agent", FullVersion)
 
 	resp2, err := client.Do(req2)
-	if err != nil {
-		log.Fatal(err)
-	}
+	checkError(err)
 	defer func(Body io.ReadCloser) {
 		err := Body.Close()
-		if err != nil {
-			log.Fatal(err)
-		}
+		checkError(err)
 	}(resp2.Body)
 
 	body2, _ := io.ReadAll(resp2.Body)
@@ -600,13 +553,9 @@ func upgrade() {
 	var rootMap map[string]Root
 	var rootMap2 map[string]Root
 	err = json.Unmarshal(body, &rootMap)
-	if err != nil {
-		log.Fatal(err)
-	}
+	checkError(err)
 	err = json.Unmarshal(body2, &rootMap2)
-	if err != nil {
-		log.Fatal(err)
-	}
+	checkError(err)
 
 	var fileList []map[string]string
 	var filteredRootMap []Root
@@ -640,9 +589,7 @@ func upgrade() {
 			for _, file3 := range root3.Files {
 				if root2.ProjectID == root3.ProjectID && root2.DatePublished != root3.DatePublished {
 					err := os.Remove(path.Join(modsPath, file3.Filename))
-					if err != nil {
-						log.Fatal(err)
-					}
+					checkError(err)
 				}
 			}
 		}
@@ -686,9 +633,8 @@ func switchProfile() {
 	jsonData, _ := json.MarshalIndent(roots, "", "  ")
 
 	err := os.WriteFile(configPath, jsonData, 0644)
-	if err != nil {
-		log.Fatal(err)
-	}
+	checkError(err)
+	return
 }
 
 func listProfiles() {
@@ -749,9 +695,7 @@ func listMods() {
 	var rootMap map[string]Root
 
 	err := json.Unmarshal(body, &rootMap)
-	if err != nil {
-		log.Fatal(err)
-	}
+	checkError(err)
 
 	i := 1
 
@@ -806,17 +750,13 @@ func Search(modName string) {
 	}
 	defer func(Body io.ReadCloser) {
 		err := Body.Close()
-		if err != nil {
-			log.Fatal(err)
-		}
+		checkError(err)
 	}(resp.Body)
 
 	body, _ := io.ReadAll(resp.Body)
 	var results SearchRoot
 	err = json.Unmarshal(body, &results)
-	if err != nil {
-		log.Fatal(err)
-	}
+	checkError(err)
 
 	var sortedResults SearchRoot
 
