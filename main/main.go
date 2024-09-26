@@ -588,8 +588,10 @@ func upgrade() {
 		for _, root3 := range rootMap2 {
 			for _, file3 := range root3.Files {
 				if root2.ProjectID == root3.ProjectID && root2.DatePublished != root3.DatePublished {
-					err := os.Remove(path.Join(modsPath, file3.Filename))
-					checkError(err)
+					if dirExists(path.Join(modsPath, file3.Filename)) {
+						err := os.Remove(path.Join(modsPath, file3.Filename))
+						checkError(err)
+					}
 				}
 			}
 		}
