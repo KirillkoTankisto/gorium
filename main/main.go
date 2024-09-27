@@ -70,6 +70,14 @@ type HashesToSend struct {
 	GameVersions []string `json:"game_versions"`
 }
 
+type Version struct {
+	GameVersions  []string  `json:"game_versions"`
+	VersionNumber string    `json:"version_number"`
+	Loaders       []string  `json:"loaders"`
+	Files         []File    `json:"files"`
+	DatePublished time.Time `json:"date_published"`
+}
+
 // console colors
 const (
 	Reset  = "\033[0m"
@@ -181,14 +189,6 @@ func main() {
 }
 
 //	Function for fetching latest version
-
-type Version struct {
-	GameVersions  []string  `json:"game_versions"`
-	VersionNumber string    `json:"version_number"`
-	Loaders       []string  `json:"loaders"`
-	Files         []File    `json:"files"`
-	DatePublished time.Time `json:"date_published"`
-}
 
 func FetchLatestVersion(modName string, gameVersion string, loader string) *Version {
 
