@@ -3,8 +3,8 @@
 package main
 
 import (
-	"os"
 	"golang.org/x/sys/windows"
+	"os"
 )
 
 // enableVirtualTerminalProcessing enables virtual terminal processing for Windows consoles.
