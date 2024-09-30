@@ -757,7 +757,7 @@ func listMods() {
 	i := 1
 
 	for _, root := range rootMap {
-		fmt.Printf("[%d] %s (%s) \n", i, root.Name, root.Files[])
+		fmt.Printf("[%d] %s (%s) \n", i, root.Name, root.Files)
 		i += 1
 	}
 
