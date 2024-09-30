@@ -70,14 +70,6 @@ type HashesToSend struct {
 	GameVersions []string `json:"game_versions"`
 }
 
-type Version struct {
-	GameVersions  []string  `json:"game_versions"`
-	VersionNumber string    `json:"version_number"`
-	Loaders       []string  `json:"loaders"`
-	Files         []File    `json:"files"`
-	DatePublished time.Time `json:"date_published"`
-}
-
 // console colors
 const (
 	Reset  = "\033[0m"
@@ -189,6 +181,14 @@ func main() {
 }
 
 //	Function for fetching latest version
+
+type Version struct {
+	GameVersions  []string  `json:"game_versions"`
+	VersionNumber string    `json:"version_number"`
+	Loaders       []string  `json:"loaders"`
+	Files         []File    `json:"files"`
+	DatePublished time.Time `json:"date_published"`
+}
 
 func FetchLatestVersion(modName string, gameVersion string, loader string) *Version {
 
@@ -410,8 +410,59 @@ func deleteConfig() {
 		fmt.Printf("%sNo profile found to delete%s", Red, Reset)
 		return
 	}
-	err := os.Remove(configPath)
+	configData := readFullConfig(configPath)
+	menu := cli.NewMenu("Select the profile you want to delete")
+	for _, profile := range configData.Profiles {
+		if profile.Active == "*" {
+			menu.AddItem(fmt.Sprintf("%s %s[%s%s%s] [%s%s%s, %s%s%s] [%s%s%s]", profile.Name, Reset, Green, "Active", Reset, Cyan, profile.Loader, Reset, Yellow, profile.GameVersion, Reset, White, profile.ModsFolder, Reset), profile.Hash)
+		} else {
+			menu.AddItem(fmt.Sprintf("%s %s[%s%s%s, %s%s%s] [%s%s%s]", profile.Name, Reset, Cyan, profile.Loader, Reset, Yellow, profile.GameVersion, Reset, White, profile.ModsFolder, Reset), profile.Hash)
+		}
+	}
+	selectedProfile := menu.Display()
+	var newConfig MultiConfig
+	needToChooseNewProfile := false
+	for i := range configData.Profiles {
+		if !(selectedProfile == configData.Profiles[i].Hash) {
+			newConfig.Profiles = append(newConfig.Profiles, configData.Profiles[i])
+		}
+		if selectedProfile == configData.Profiles[i].Hash && configData.Profiles[i].Active == "*" {
+			needToChooseNewProfile = true
+		}
+	}
+
+	if needToChooseNewProfile {
+		if len(newConfig.Profiles) == 0 {
+			jsonData, _ := json.MarshalIndent(newConfig, "", "  ")
+			err := os.WriteFile(configPath, jsonData, 0644)
+			checkError(err)
+			return
+		}
+		if len(newConfig.Profiles) == 1 {
+			for i := range newConfig.Profiles {
+				newConfig.Profiles[i].Active = "*"
+			}
+			jsonData, _ := json.MarshalIndent(newConfig, "", "  ")
+			err := os.WriteFile(configPath, jsonData, 0644)
+			checkError(err)
+			return
+		}
+		secondMenu := cli.NewMenu("Select profile to switch to")
+		for _, profile := range newConfig.Profiles {
+			secondMenu.AddItem(fmt.Sprintf("%s %s[%s%s%s, %s%s%s] [%s%s%s]", profile.Name, Reset, Cyan, profile.Loader, Reset, Yellow, profile.GameVersion, Reset, White, profile.ModsFolder, Reset), profile.Hash)
+		}
+		selectedProfile = secondMenu.Display()
+		for i := range newConfig.Profiles {
+			fmt.Println(selectedProfile, newConfig.Profiles[i].Hash)
+			if selectedProfile == newConfig.Profiles[i].Hash {
+				newConfig.Profiles[i].Active = "*"
+			}
+		}
+	}
+	jsonData, _ := json.MarshalIndent(newConfig, "", "  ")
+	err := os.WriteFile(configPath, jsonData, 0644)
 	checkError(err)
+	return
 }
 
 func getConfigPath() (string, string) {
@@ -642,6 +693,10 @@ func switchProfile() {
 func listProfiles() {
 	configPath, _ := getConfigPath()
 	roots := readFullConfig(configPath)
+	if len(roots.Profiles) < 1 {
+		fmt.Println("No profiles to list")
+		return
+	}
 	for _, profile := range roots.Profiles {
 		if profile.Active == "*" {
 			fmt.Printf("%s [%s%s%s] [%s%s%s, %s%s%s] [%s%s%s]\n", profile.Name, Green, "Active", Reset, Cyan, profile.Loader, Reset, Yellow, profile.GameVersion, Reset, White, profile.ModsFolder, Reset)
@@ -672,7 +727,7 @@ func listMods() {
 
 	data := HashesToSend{
 		Hashes:    hashes,
-		Algorithm: "sha1",
+		Algorithm: "sha512",
 		Loaders: []string{
 			loader,
 		},
@@ -702,7 +757,7 @@ func listMods() {
 	i := 1
 
 	for _, root := range rootMap {
-		fmt.Printf("[%d] %s \n", i, root.Name)
+		fmt.Printf("[%d] %s (%s) \n", i, root.Name, root.Files[])
 		i += 1
 	}
 
