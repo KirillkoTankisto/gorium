@@ -29,8 +29,6 @@ import (
 const ProgramVersion = "0.1"
 const FullVersion = "Gorium " + ProgramVersion
 
-var backwardFabric, backwardForge = false, false
-
 type Config struct {
 	Active      string `json:"active"`
 	Name        string `json:"name"`
@@ -104,6 +102,18 @@ func main() {
 		err := os.WriteFile(configPath, jsonData, 0644)
 		checkError(err)
 	}
+	
+	configData := readConfig(configPath)
+
+	loader := configData.Loader
+	backwardFabric, backwardForge := false, false
+	switch loader {
+	case "quilt":
+		backwardFabric = true
+	case "neoforge":
+		backwardForge = true
+	}
+	backward := []bool{backwardFabric, backwardForge}
 
 	getProject := flag.NewFlagSet("add", flag.ExitOnError)
 	createProfile := flag.NewFlagSet("profile", flag.ExitOnError)
@@ -135,7 +145,7 @@ func main() {
 
 		modName := os.Args[2]
 
-		latestVersion := FetchLatestVersion(modName, gameVersion, loader)
+		latestVersion := FetchLatestVersion(modName, gameVersion, loader, backward)
 		if latestVersion == nil {
 			return
 		}
@@ -171,7 +181,7 @@ func main() {
 		err := searchMod.Parse(os.Args[2:])
 		checkError(err)
 		modName := os.Args[2]
-		Search(modName)
+		Search(modName, backward)
 	case "testing":
 		return
 	default:
@@ -190,7 +200,7 @@ type Version struct {
 	DatePublished time.Time `json:"date_published"`
 }
 
-func FetchLatestVersion(modName string, gameVersion string, loader string) *Version {
+func FetchLatestVersion(modName string, gameVersion string, loader string, backward []bool) *Version {
 
 	urlProject := fmt.Sprintf("https://api.modrinth.com/v2/project/%s/version", modName)
 
@@ -217,25 +227,18 @@ func FetchLatestVersion(modName string, gameVersion string, loader string) *Vers
 	err = json.Unmarshal(body, &versions)
 	checkError(err)
 
-	switch loader {
-	case "quilt":
-		backwardFabric = true
-	case "neoforge":
-		backwardForge = true
-	}
-
 	var filteredVersions []Version
 
 	for _, version := range versions {
-		if !backwardForge && !backwardFabric {
+		if !backward[1] && !backward[0] {
 			if slices.Contains(version.GameVersions, gameVersion) && slices.Contains(version.Loaders, loader) {
 				filteredVersions = append(filteredVersions, version)
 			}
 		} else {
-			if backwardForge && slices.Contains(version.GameVersions, gameVersion) && (slices.Contains(version.Loaders, loader) || slices.Contains(version.Loaders, "forge")) {
+			if backward[1] && slices.Contains(version.GameVersions, gameVersion) && (slices.Contains(version.Loaders, loader) || slices.Contains(version.Loaders, "forge")) {
 				filteredVersions = append(filteredVersions, version)
 			}
-			if backwardFabric && slices.Contains(version.GameVersions, gameVersion) && (slices.Contains(version.Loaders, loader) || slices.Contains(version.Loaders, "fabric")) {
+			if backward[0] && slices.Contains(version.GameVersions, gameVersion) && (slices.Contains(version.Loaders, loader) || slices.Contains(version.Loaders, "fabric")) {
 				filteredVersions = append(filteredVersions, version)
 			}
 		}
@@ -773,7 +776,7 @@ func contains(slice []string, str string) bool {
 	return false
 }
 
-func Search(modName string) {
+func Search(modName string, backward []bool) {
 	configPath, _ := getConfigPath()
 	if !dirExists(configPath) {
 		fmt.Println(Red + "No profile found, type gorium profile create" + Reset)
@@ -784,13 +787,6 @@ func Search(modName string) {
 	loader := configData.Loader
 	version := configData.GameVersion
 	modsPath := configData.ModsFolder
-
-	switch loader {
-	case "quilt":
-		backwardFabric = true
-	case "neoforge":
-		backwardForge = true
-	}
 
 	urlProject := fmt.Sprintf("https://api.modrinth.com/v2/search?query=%s&limit=100", modName)
 	client := http.Client{
@@ -819,11 +815,11 @@ func Search(modName string) {
 
 	for _, hit := range results.Hits {
 		if hit.ProjectType == "mod" && contains(hit.Versions, version) {
-			if backwardForge {
+			if backward[1] {
 				if contains(hit.Categories, loader) || contains(hit.Categories, "forge") {
 					sortedResults.Hits = append(sortedResults.Hits, hit)
 				}
-			} else if backwardFabric {
+			} else if backward[0] {
 				if contains(hit.Categories, loader) || contains(hit.Categories, "fabric") {
 					sortedResults.Hits = append(sortedResults.Hits, hit)
 				}
@@ -870,7 +866,7 @@ func Search(modName string) {
 	}
 	var latestVersions Versions
 	for i := range modsToDownload {
-		latestVersions.Version = append(latestVersions.Version, FetchLatestVersion(modsToDownload[i], version, loader))
+		latestVersions.Version = append(latestVersions.Version, FetchLatestVersion(modsToDownload[i], version, loader, backward))
 	}
 
 	var filesToDownload []map[string]string
