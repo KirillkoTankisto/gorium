@@ -1,5 +1,3 @@
-<img src="/img/gorium-logo.png" align="left" width="180">
-<br><br><br>
-<br><br><br>
+<img src="/img/gorium-logo.png" align="start" width="180">
 
 # Gorium - Fast CLI mod manager for Minecraft
