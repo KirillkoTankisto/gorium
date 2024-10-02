@@ -23,11 +23,35 @@ import (
 	"time"
 
 	"gorium/cli"
+
+	"golang.org/x/term"
 )
 
 // ProgramVersion variables and constants
 const ProgramVersion = "0.1"
 const FullVersion = "Gorium " + ProgramVersion
+
+var helpStrings = []string{
+	"Use: gorium <command>",
+	"",
+	"gorium add <mod slug/id> - add mod",
+	"gorium help - display this text",
+	"gorium list - list installed mods",
+	"gorium profile <create/delete/switch/list>",
+	"gorium search - search mods through Modrinth",
+	"gorium upgrade - update mods to latest version",
+	"gorium version - display current version of Gorium",
+}
+
+var licenseStrings = []string{
+	"Gorium Copyright © 2024 KirillkoTankisto (https://github.com/KirillkoTankisto).",
+	"",
+	"Fast Minecraft CLI mod manager written in Go.",
+	"This program comes with ABSOLUTELY NO WARRANTY.",
+	"This is free software, and you are welcome to redistribute it under certain conditions.",
+	"For details, see here: https://www.gnu.org/licenses/gpl-3.0.txt",
+	"Contacts: kirsergeev@icloud.com, kirillkotankisto@gmail.com",
+}
 
 type Config struct {
 	Active      string `json:"active"`
@@ -68,7 +92,15 @@ type HashesToSend struct {
 	GameVersions []string `json:"game_versions"`
 }
 
-// console colors
+type Version struct {
+	GameVersions  []string  `json:"game_versions"`
+	VersionNumber string    `json:"version_number"`
+	Loaders       []string  `json:"loaders"`
+	Files         []File    `json:"files"`
+	DatePublished time.Time `json:"date_published"`
+}
+
+// console colors and format
 const (
 	Reset  = "\033[0m"
 	Red    = "\033[31m"
@@ -78,6 +110,8 @@ const (
 	Purple = "\033[35m"
 	Cyan   = "\033[36m"
 	White  = "\033[37m"
+	Bold   = "\033[1m"
+	Italic = "\033[3m"
 )
 
 // main function
@@ -102,7 +136,7 @@ func main() {
 		err := os.WriteFile(configPath, jsonData, 0644)
 		checkError(err)
 	}
-	
+
 	configData := readConfig(configPath)
 
 	loader := configData.Loader
@@ -113,14 +147,14 @@ func main() {
 	case "neoforge":
 		backwardForge = true
 	}
-	backward := []bool{backwardFabric, backwardForge}
+	backward := []bool{backwardFabric, backwardForge} // 0 = Fabric, 1 = Forge
 
 	getProject := flag.NewFlagSet("add", flag.ExitOnError)
 	createProfile := flag.NewFlagSet("profile", flag.ExitOnError)
 	searchMod := flag.NewFlagSet("search", flag.ExitOnError)
 
 	if len(os.Args) < 2 {
-		fmt.Println("Gorium Copyright © 2024 KirillkoTankisto (https://github.com/KirillkoTankisto).\nFast Minecraft CLI mod manager written in Go.\nThis program comes with ABSOLUTELY NO WARRANTY.\nThis is free software, and you are welcome to redistribute it under certain conditions.\nFor details, see here: https://www.gnu.org/licenses/gpl-3.0.txt\nContacts: kirsergeev@icloud.com, kirillkotankisto@gmail.com")
+		displaySimpleText(licenseStrings)
 		return
 	}
 
@@ -145,7 +179,7 @@ func main() {
 
 		modName := os.Args[2]
 
-		latestVersion := FetchLatestVersion(modName, gameVersion, loader, backward)
+		latestVersion := fetchLatestVersion(modName, gameVersion, loader, backward)
 		if latestVersion == nil {
 			return
 		}
@@ -161,13 +195,18 @@ func main() {
 		switch os.Args[2] {
 		case "create":
 			createConfig()
+			return
 		case "delete":
 			deleteConfig()
+			return
 		case "switch":
 			switchProfile()
+			return
 		case "list":
 			listProfiles()
 			return
+		default:
+			log.Fatal("Unknown command")
 		}
 		return
 
@@ -182,25 +221,67 @@ func main() {
 		checkError(err)
 		modName := os.Args[2]
 		Search(modName, backward)
+	case "help":
+		displaySimpleText(helpStrings)
 	case "testing":
 		return
 	default:
-		fmt.Println("Unknown command")
+		log.Fatal("Unknown command")
+	}
+}
+
+func displaySimpleText(stringsToDisplay []string) {
+	width, height, err := term.GetSize(int(os.Stdout.Fd()))
+	if err != nil {
+		fmt.Println("Error getting terminal size:", err)
 		return
 	}
+	boxWidth := width - 2
+	if boxWidth < 1 {
+		boxWidth = 1
+	}
+
+	boxHeight := len(stringsToDisplay) + 2
+	if boxHeight > height-2 {
+		boxHeight = height - 2
+	}
+
+	// Top
+	fmt.Printf("┌%s┐\n", strings.Repeat("─", boxWidth))
+
+	verticalPadding := (boxHeight - len(stringsToDisplay)) / 2
+
+	for i := 0; i < verticalPadding; i++ {
+		fmt.Printf("│%s│\n", strings.Repeat(" ", boxWidth))
+	}
+
+	// Text
+	for _, line := range stringsToDisplay {
+		if len(line) > boxWidth {
+			line = line[:boxWidth]
+		}
+
+		leftPadding := (boxWidth - len(line)) / 2
+		rightPadding := boxWidth - len(line) - leftPadding
+		if (strings.Contains(line, "//") || strings.Contains(line, "\\")) && !strings.Contains(line, "gpl") { // Don't look, it's done very poorly.
+			rightPadding++
+		}
+
+		fmt.Printf("│%s%s%s│\n", strings.Repeat(" ", leftPadding), line, strings.Repeat(" ", rightPadding))
+	}
+
+	// Empty lines
+	for i := 0; i < boxHeight-len(stringsToDisplay)-verticalPadding; i++ {
+		fmt.Printf("│%s│\n", strings.Repeat(" ", boxWidth))
+	}
+
+	// Bottom
+	fmt.Printf("└%s┘\n", strings.Repeat("─", boxWidth))
 }
 
 //	Function for fetching latest version
 
-type Version struct {
-	GameVersions  []string  `json:"game_versions"`
-	VersionNumber string    `json:"version_number"`
-	Loaders       []string  `json:"loaders"`
-	Files         []File    `json:"files"`
-	DatePublished time.Time `json:"date_published"`
-}
-
-func FetchLatestVersion(modName string, gameVersion string, loader string, backward []bool) *Version {
+func fetchLatestVersion(modName string, gameVersion string, loader string, backward []bool) *Version {
 
 	urlProject := fmt.Sprintf("https://api.modrinth.com/v2/project/%s/version", modName)
 
@@ -866,7 +947,7 @@ func Search(modName string, backward []bool) {
 	}
 	var latestVersions Versions
 	for i := range modsToDownload {
-		latestVersions.Version = append(latestVersions.Version, FetchLatestVersion(modsToDownload[i], version, loader, backward))
+		latestVersions.Version = append(latestVersions.Version, fetchLatestVersion(modsToDownload[i], version, loader, backward))
 	}
 
 	var filesToDownload []map[string]string
