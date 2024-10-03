@@ -224,10 +224,44 @@ func main() {
 	case "help":
 		displaySimpleText(helpStrings)
 	case "testing":
+		//		modMenu := cli.NewMenu("Mods")
+		//		_, context := listMods()
+		//		for _, i := range context {
+		//			modMenu.AddItem(i.Name, i.ProjectID)
+		//		}
+		//		projectID := modMenu.Display()
+		//		editMenu := cli.NewMenu("What to do with this mod")
+		//		editMenu.AddItem("Change version", "change")
+		//		editMenu.AddItem("Delete", "delete")
+
 		return
 	default:
 		log.Fatal("Unknown command")
 	}
+}
+
+func sendModrinthAPIRequest(url string, requestType string, contents io.Reader, contentType string) []byte {
+	client := http.Client{
+		Timeout: time.Second * 5,
+	}
+
+	req, _ := http.NewRequest(requestType, url, contents)
+	req.Header.Set("User-Agent", FullVersion)
+	if contents != nil {
+		req.Header.Set("Content-Type", contentType)
+	}
+
+	resp, err := client.Do(req)
+	checkError(err)
+
+	defer func(Body io.ReadCloser) {
+		err := Body.Close()
+		checkError(err)
+	}(resp.Body)
+
+	body, _ := io.ReadAll(resp.Body)
+
+	return body
 }
 
 func displaySimpleText(stringsToDisplay []string) {
@@ -285,27 +319,10 @@ func fetchLatestVersion(modName string, gameVersion string, loader string, backw
 
 	urlProject := fmt.Sprintf("https://api.modrinth.com/v2/project/%s/version", modName)
 
-	client := http.Client{
-		Timeout: time.Second * 5,
-	}
-
-	req, _ := http.NewRequest("GET", urlProject, nil)
-	req.Header.Set("User-Agent", FullVersion)
-
-	resp, err := client.Do(req)
-	if err != nil {
-		fmt.Println(Red + "Error fetching the latest version" + Reset)
-		return nil
-	}
-	defer func(Body io.ReadCloser) {
-		err := Body.Close()
-		checkError(err)
-	}(resp.Body)
-
-	body, _ := io.ReadAll(resp.Body)
+	body := sendModrinthAPIRequest(urlProject, "GET", nil, "")
 
 	var versions []Version
-	err = json.Unmarshal(body, &versions)
+	err := json.Unmarshal(body, &versions)
 	checkError(err)
 
 	var filteredVersions []Version
@@ -655,39 +672,13 @@ func upgrade() {
 	url2 := "https://api.modrinth.com/v2/version_files"
 
 	r := bytes.NewReader(jsonData)
-	r2 := bytes.NewReader(jsonData)
 
-	req, _ := http.NewRequest("POST", url, r)
-	req.Header.Set("Content-Type", "application/json")
-	req.Header.Set("User-Agent", FullVersion)
-
-	client := &http.Client{}
-	resp, err := client.Do(req)
-	checkError(err)
-
-	defer func(Body io.ReadCloser) {
-		err := Body.Close()
-		checkError(err)
-	}(resp.Body)
-
-	body, _ := io.ReadAll(resp.Body)
-
-	req2, _ := http.NewRequest("POST", url2, r2)
-	req2.Header.Set("Content-Type", "application/json")
-	req2.Header.Set("User-Agent", FullVersion)
-
-	resp2, err := client.Do(req2)
-	checkError(err)
-	defer func(Body io.ReadCloser) {
-		err := Body.Close()
-		checkError(err)
-	}(resp2.Body)
-
-	body2, _ := io.ReadAll(resp2.Body)
+	body := sendModrinthAPIRequest(url, "POST", r, "application/json")
+	body2 := sendModrinthAPIRequest(url2, "POST", r, "application/json")
 
 	var rootMap map[string]Root
 	var rootMap2 map[string]Root
-	err = json.Unmarshal(body, &rootMap)
+	err := json.Unmarshal(body, &rootMap)
 	checkError(err)
 	err = json.Unmarshal(body2, &rootMap2)
 	checkError(err)
@@ -793,8 +784,7 @@ func listProfiles() {
 func listMods() {
 	configPath, _ := getConfigPath()
 	if !dirExists(configPath) {
-		fmt.Println(Red + "No profile found, type gorium profile create" + Reset)
-		return
+		log.Fatal(Red + "No profile found, type gorium profile create" + Reset)
 	}
 	url := "https://api.modrinth.com/v2/version_files"
 
@@ -805,8 +795,7 @@ func listMods() {
 	hashes := getSHA512HashesFromDirectory(modsFolder)
 
 	if len(hashes) < 1 {
-		fmt.Println("There's no mods, type gorium add")
-		return
+		log.Fatal("There's no mods, type gorium add")
 	}
 
 	data := HashesToSend{
@@ -824,14 +813,7 @@ func listMods() {
 
 	r := bytes.NewReader(jsonData)
 
-	req, _ := http.NewRequest("POST", url, r)
-	req.Header.Set("Content-Type", "application/json")
-	req.Header.Set("User-Agent", FullVersion)
-
-	client := &http.Client{}
-	resp, _ := client.Do(req)
-
-	body, _ := io.ReadAll(resp.Body)
+	body := sendModrinthAPIRequest(url, "POST", r, "application/json")
 
 	var rootMap map[string]Root
 
@@ -841,7 +823,7 @@ func listMods() {
 	i := 1
 
 	for _, root := range rootMap {
-		fmt.Printf("[%d] %s (%s) \n", i, root.Name, root.Files)
+		fmt.Printf("[%d] %s (%s) \n", i, root.Name, root.Files[0].Filename)
 		i += 1
 	}
 
@@ -869,27 +851,11 @@ func Search(modName string, backward []bool) {
 	version := configData.GameVersion
 	modsPath := configData.ModsFolder
 
-	urlProject := fmt.Sprintf("https://api.modrinth.com/v2/search?query=%s&limit=100", modName)
-	client := http.Client{
-		Timeout: time.Second * 5,
-	}
+	urlSearch := fmt.Sprintf("https://api.modrinth.com/v2/search?query=%s&limit=100", modName)
 
-	req, _ := http.NewRequest("GET", urlProject, nil)
-	req.Header.Set("User-Agent", FullVersion)
-
-	resp, err := client.Do(req)
-	if err != nil {
-		fmt.Println(Red + "Error fetching search results" + Reset)
-		return
-	}
-	defer func(Body io.ReadCloser) {
-		err := Body.Close()
-		checkError(err)
-	}(resp.Body)
-
-	body, _ := io.ReadAll(resp.Body)
+	body := sendModrinthAPIRequest(urlSearch, "GET", nil, "")
 	var results SearchRoot
-	err = json.Unmarshal(body, &results)
+	err := json.Unmarshal(body, &results)
 	checkError(err)
 
 	var sortedResults SearchRoot
