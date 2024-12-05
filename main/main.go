@@ -13,6 +13,7 @@ import (
 	"io"
 	"log"
 	"net/http"
+	"net/url"
 	"os"
 	"path"
 	"slices"
@@ -28,7 +29,7 @@ import (
 )
 
 // ProgramVersion variables and constants
-const ProgramVersion = "0.1"
+const ProgramVersion = "0.2"
 const FullVersion = "Gorium " + ProgramVersion
 
 var helpStrings = []string{
@@ -98,6 +99,13 @@ type Version struct {
 	Loaders       []string  `json:"loaders"`
 	Files         []File    `json:"files"`
 	DatePublished time.Time `json:"date_published"`
+	Slug          string    `json:"slug"`
+	Title         string    `json:"title"`
+	ProjectID     string    `json:"project_id"`
+}
+
+type Dependencies struct {
+	Projects []Version `json:"projects"`
 }
 
 // console colors and format
@@ -116,6 +124,8 @@ const (
 
 // main function
 func main() {
+
+	log.SetFlags(0)
 
 	enableVirtualTerminalProcessing()
 
@@ -147,6 +157,17 @@ func main() {
 	case "neoforge":
 		backwardForge = true
 	}
+
+	var loaderList []string
+
+	switch loader {
+	case "quilt":
+		loaderList = append(loaderList, "fabric")
+	case "neoforge":
+		loaderList = append(loaderList, "forge")
+	default:
+	}
+
 	backward := []bool{backwardFabric, backwardForge} // 0 = Fabric, 1 = Forge
 
 	getProject := flag.NewFlagSet("add", flag.ExitOnError)
@@ -171,6 +192,7 @@ func main() {
 			fmt.Println(Red + "No profile found, type gorium profile create" + Reset)
 			return
 		}
+
 		configData := readConfig(configPath)
 
 		gameVersion := configData.GameVersion
@@ -179,13 +201,23 @@ func main() {
 
 		modName := os.Args[2]
 
-		latestVersion := fetchLatestVersion(modName, gameVersion, loader, backward)
+		latestVersion := fetchLatestVersion(modName, gameVersion, loader)
 		if latestVersion == nil {
-			return
+			log.Fatal("Cannot find version")
+		}
+
+		dependencies, extraDependenciesInfo := getDependencies(modName, gameVersion, loader, modsPath, backward, loaderList)
+
+		if len(dependencies) > 0 {
+			for i := len(extraDependenciesInfo.Projects) - 1; i >= 0; i-- {
+				fmt.Printf("[%s%d%s]%s %s\n", White, i+1, Reset, White, extraDependenciesInfo.Projects[i].Title)
+			}
+			fmt.Printf("%s%d%s mods are required to satisfy mod dependencies%s\n", Green, len(dependencies), Yellow, Reset)
 		}
 
 		err = downloadFile(latestVersion.Files[0].URL, modsPath, latestVersion.Files[0].Filename)
 		checkError(err)
+
 		return
 
 	case "profile":
@@ -224,15 +256,19 @@ func main() {
 	case "help":
 		displaySimpleText(helpStrings)
 	case "testing":
-		//		modMenu := cli.NewMenu("Mods")
-		//		_, context := listMods()
-		//		for _, i := range context {
-		//			modMenu.AddItem(i.Name, i.ProjectID)
-		//		}
-		//		projectID := modMenu.Display()
-		//		editMenu := cli.NewMenu("What to do with this mod")
-		//		editMenu.AddItem("Change version", "change")
-		//		editMenu.AddItem("Delete", "delete")
+
+		configPath, _ := getConfigPath()
+		if !dirExists(configPath) {
+			fmt.Println(Red + "No profile found, type gorium profile create" + Reset)
+			return
+		}
+		configData := readConfig(configPath)
+
+		modsPath := configData.ModsFolder
+
+		dependencies, _ := getDependencies("modmenu", "1.21.3", "fabric", modsPath, backward, loaderList)
+
+		downloadFilesConcurrently(modsPath, dependencies)
 
 		return
 	default:
@@ -313,11 +349,110 @@ func displaySimpleText(stringsToDisplay []string) {
 	fmt.Printf("└%s┘\n", strings.Repeat("─", boxWidth))
 }
 
+func getDependencies(modName string, gameVersion string, loader string, modsPath string, backward []bool, loaderList []string) ([]map[string]string, Dependencies) {
+
+	var dependencies Dependencies
+	var dependencies2 Dependencies
+
+	var filteredDVersions []Version
+	var filteredDVersions2 []Version
+	var filteredDVersions3 []Version
+
+	urlDependencies := fmt.Sprintf("https://api.modrinth.com/v2/project/%s/dependencies", modName)
+	body := sendModrinthAPIRequest(urlDependencies, "GET", nil, "")
+	err := json.Unmarshal(body, &dependencies)
+	checkError(err)
+
+	hashes := getSHA512HashesFromDirectory(modsPath)
+
+	data := HashesToSend{
+		Hashes:    hashes,
+		Algorithm: "sha512",
+		Loaders:   loaderList,
+		GameVersions: []string{
+			gameVersion,
+		},
+	}
+
+	jsonData, _ := json.MarshalIndent(data, "", "  ")
+
+	r := bytes.NewReader(jsonData)
+
+	resp := sendModrinthAPIRequest("https://api.modrinth.com/v2/version_files", "POST", r, "application/json")
+
+	var rootMap map[string]Root
+	err = json.Unmarshal(resp, &rootMap)
+	checkError(err)
+
+	for i := range dependencies.Projects {
+		filteredDVersions = []Version{}
+		body3 := sendModrinthAPIRequest(fmt.Sprintf("https://api.modrinth.com/v2/project/%s/version", dependencies.Projects[i].Slug), "GET", nil, "")
+		var dependencyVersions []Version
+		json.Unmarshal(body3, &dependencyVersions)
+
+		if len(dependencyVersions) == 0 {
+			return nil, Dependencies{}
+		}
+
+		for _, version := range dependencyVersions {
+			if !backward[1] && !backward[0] {
+				if slices.Contains(version.GameVersions, gameVersion) && slices.Contains(version.Loaders, loader) {
+					filteredDVersions = append(filteredDVersions, version)
+				}
+			} else {
+				if backward[1] && slices.Contains(version.GameVersions, gameVersion) && (slices.Contains(version.Loaders, loader) || slices.Contains(version.Loaders, "forge")) {
+					filteredDVersions = append(filteredDVersions, version)
+				}
+				if backward[0] && slices.Contains(version.GameVersions, gameVersion) && (slices.Contains(version.Loaders, loader) || slices.Contains(version.Loaders, "fabric")) {
+					filteredDVersions = append(filteredDVersions, version)
+				}
+			}
+		}
+		sort.Slice(filteredDVersions, func(i, j int) bool {
+			return filteredDVersions[i].DatePublished.After(filteredDVersions[j].DatePublished)
+		})
+		filteredDVersions2 = append(filteredDVersions2, filteredDVersions[0])
+	}
+
+	existingIDs := make(map[string]bool)
+	for _, root := range rootMap {
+		existingIDs[root.ProjectID] = true
+	}
+
+	for i, version := range filteredDVersions2 {
+		if !existingIDs[version.ProjectID] {
+			filteredDVersions3 = append(filteredDVersions3, version)
+			dependencies2.Projects = append(dependencies2.Projects, dependencies.Projects[i])
+		}
+	}
+
+	var dependenciesfiles []map[string]string
+	for i := range filteredDVersions3 {
+		for _, file := range filteredDVersions3[i].Files {
+			fileInfo := map[string]string{
+				"url":      file.URL,
+				"filename": file.Filename,
+			}
+			dependenciesfiles = append(dependenciesfiles, fileInfo)
+		}
+	}
+
+	return dependenciesfiles, dependencies2
+}
+
 //	Function for fetching latest version
 
-func fetchLatestVersion(modName string, gameVersion string, loader string, backward []bool) *Version {
+func fetchLatestVersion(modName string, gameVersion string, loader string) *Version {
 
-	urlProject := fmt.Sprintf("https://api.modrinth.com/v2/project/%s/version", modName)
+	baseURL := fmt.Sprintf("https://api.modrinth.com/v2/project/%s/version", modName)
+
+	params := url.Values{}
+	params.Add("game_version", fmt.Sprintf(`["%s"]`, gameVersion))
+	params.Add("loaders", fmt.Sprintf(`["%s"]`, loader))
+
+	encodedParams := params.Encode()
+
+	urlProject := fmt.Sprintf("%s?%s", baseURL, encodedParams)
 
 	body := sendModrinthAPIRequest(urlProject, "GET", nil, "")
 
@@ -325,30 +460,10 @@ func fetchLatestVersion(modName string, gameVersion string, loader string, backw
 	err := json.Unmarshal(body, &versions)
 	checkError(err)
 
-	var filteredVersions []Version
-
-	for _, version := range versions {
-		if !backward[1] && !backward[0] {
-			if slices.Contains(version.GameVersions, gameVersion) && slices.Contains(version.Loaders, loader) {
-				filteredVersions = append(filteredVersions, version)
-			}
-		} else {
-			if backward[1] && slices.Contains(version.GameVersions, gameVersion) && (slices.Contains(version.Loaders, loader) || slices.Contains(version.Loaders, "forge")) {
-				filteredVersions = append(filteredVersions, version)
-			}
-			if backward[0] && slices.Contains(version.GameVersions, gameVersion) && (slices.Contains(version.Loaders, loader) || slices.Contains(version.Loaders, "fabric")) {
-				filteredVersions = append(filteredVersions, version)
-			}
-		}
-	}
-	if len(filteredVersions) == 0 {
-		fmt.Println(Red + "No versions found" + Reset)
+	if len(versions) == 0 {
 		return nil
 	}
-	sort.Slice(filteredVersions, func(i, j int) bool {
-		return filteredVersions[i].DatePublished.After(filteredVersions[j].DatePublished)
-	})
-	return &filteredVersions[0]
+	return &versions[0]
 }
 
 // function to download file from url
@@ -452,14 +567,14 @@ func getConfigDataToWrite() (string, string, string, string, string) {
 			_, err := fmt.Scanln(&folder)
 			checkError(err)
 			if dirExists(folder) {
-				i = 1
+				i++
 			}
 		case 1:
 			fmt.Print("Enter Minecraft version: ")
 			_, err := fmt.Scanln(&mineVersion)
 			checkError(err)
 			if mineVersion != "" {
-				i = 2
+				i++
 			}
 		case 2:
 			menu := cli.NewMenu("Choose loader")
@@ -468,13 +583,13 @@ func getConfigDataToWrite() (string, string, string, string, string) {
 			menu.AddItem("Forge", "forge")
 			menu.AddItem("Neoforge", "neoforge")
 			loader = menu.Display()
-			i = 3
+			i++
 		case 3:
 			fmt.Print("How does this profile should be called?\n")
 			_, err := fmt.Scanln(&name)
 			checkError(err)
 			if name != "" {
-				i = 4
+				i++
 			}
 		}
 	}
@@ -618,10 +733,11 @@ func hashFileSHA512(filePath string) string {
 	return hashString
 }
 
-func checkError(err error) {
+func checkError(err error) error {
 	if err != nil {
 		log.Fatal(err)
 	}
+	return err
 }
 
 func upgrade() {
@@ -648,14 +764,6 @@ func upgrade() {
 	}
 
 	loaderList := []string{loader}
-
-	switch loader {
-	case "quilt":
-		loaderList = append(loaderList, "fabric")
-	case "neoforge":
-		loaderList = append(loaderList, "forge")
-	default:
-	}
 
 	data := HashesToSend{
 		Hashes:    hashes,
@@ -913,7 +1021,7 @@ func Search(modName string, backward []bool) {
 	}
 	var latestVersions Versions
 	for i := range modsToDownload {
-		latestVersions.Version = append(latestVersions.Version, fetchLatestVersion(modsToDownload[i], version, loader, backward))
+		latestVersions.Version = append(latestVersions.Version, fetchLatestVersion(modsToDownload[i], version, loader))
 	}
 
 	var filesToDownload []map[string]string
